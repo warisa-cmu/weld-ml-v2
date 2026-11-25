@@ -1,0 +1,171 @@
+{
+  "weld_id": "W015",
+  "welded_at": "2026-11-25T15:11:19",
+  "settings": {
+    "R": 1810,
+    "W": 81,
+    "D": 24,
+    "P": 0.115,
+    "O": "O2"
+  },
+  "seed": 3161855795,
+  "visual_quality": 3,
+  "stress": {
+    "1": [
+      184.8,
+      179.6,
+      186.5
+    ],
+    "2": [
+      162.3,
+      164.7,
+      166.4
+    ],
+    "3": [
+      175.0,
+      178.6,
+      191.5
+    ]
+  },
+  "coupons_cut": true,
+  "coupons": {
+    "1": {
+      "uts": 255.6,
+      "fracture": "interface"
+    },
+    "2": {
+      "uts": 258.8,
+      "fracture": "weld zone"
+    }
+  },
+  "log": [
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "weld",
+      "R": 1810,
+      "W": 81,
+      "D": 24,
+      "P": 0.115,
+      "O": "O2"
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "inspect",
+      "visual_quality": 3
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 1,
+      "reading_no": 1,
+      "value": 184.8
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 1,
+      "reading_no": 2,
+      "value": 179.6
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 1,
+      "reading_no": 3,
+      "value": 186.5
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 2,
+      "reading_no": 1,
+      "value": 162.3
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 2,
+      "reading_no": 2,
+      "value": 164.7
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 2,
+      "reading_no": 3,
+      "value": 166.4
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 3,
+      "reading_no": 1,
+      "value": 175.0
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 3,
+      "reading_no": 2,
+      "value": 178.6
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "read_stress",
+      "position": 3,
+      "reading_no": 3,
+      "value": 191.5
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "cut_coupons"
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "test_coupon",
+      "coupon": 1,
+      "uts": 255.6,
+      "fracture": "interface"
+    },
+    {
+      "time": "2026-11-25T15:11:19",
+      "action": "test_coupon",
+      "coupon": 2,
+      "uts": 258.8,
+      "fracture": "weld zone"
+    }
+  ],
+  "_params": {
+    "importance": {
+      "R": 1.0,
+      "W": 1.0,
+      "D": 1.0,
+      "P": 1.0,
+      "O": 1.0
+    },
+    "weld_stress_std": 10.0,
+    "weld_uts_std": 6.0,
+    "visual_std": 0.35,
+    "position_std": 8.0,
+    "reading_std": 6.0,
+    "outlier_prob": 0.07,
+    "outlier_size": 60.0,
+    "coupon_std": 5.0,
+    "base_metal_uts": 262.0,
+    "drift_stress_per_weld": 0.0,
+    "drift_uts_per_weld": 0.0
+  },
+  "_truth": {
+    "quality": 3,
+    "visual_latent": 3.90341241562536,
+    "heat_index": 0.04666666666666669,
+    "stress_true": [
+      186.3327671553774,
+      173.96219490701213,
+      184.39432885539856
+    ],
+    "uts_true": 257.7460194380039,
+    "base_metal_uts": 262.0,
+    "weld_index": 15
+  }
+}

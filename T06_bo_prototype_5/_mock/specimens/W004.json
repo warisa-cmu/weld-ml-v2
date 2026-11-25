@@ -1,0 +1,72 @@
+{
+  "weld_id": "W004",
+  "welded_at": "2026-11-25T15:08:26",
+  "settings": {
+    "R": 1510,
+    "W": 82,
+    "D": 22,
+    "P": 0.07,
+    "O": "O1"
+  },
+  "seed": 3530168036,
+  "visual_quality": 0,
+  "stress": {
+    "1": [],
+    "2": [],
+    "3": []
+  },
+  "coupons_cut": false,
+  "coupons": {
+    "1": null,
+    "2": null
+  },
+  "log": [
+    {
+      "time": "2026-11-25T15:08:26",
+      "action": "weld",
+      "R": 1510,
+      "W": 82,
+      "D": 22,
+      "P": 0.07,
+      "O": "O1"
+    },
+    {
+      "time": "2026-11-25T15:08:26",
+      "action": "inspect",
+      "visual_quality": 0
+    }
+  ],
+  "_params": {
+    "importance": {
+      "R": 1.0,
+      "W": 1.0,
+      "D": 1.0,
+      "P": 1.0,
+      "O": 1.0
+    },
+    "weld_stress_std": 10.0,
+    "weld_uts_std": 6.0,
+    "visual_std": 0.35,
+    "position_std": 8.0,
+    "reading_std": 6.0,
+    "outlier_prob": 0.07,
+    "outlier_size": 60.0,
+    "coupon_std": 5.0,
+    "base_metal_uts": 262.0,
+    "drift_stress_per_weld": 0.0,
+    "drift_uts_per_weld": 0.0
+  },
+  "_truth": {
+    "quality": 0,
+    "visual_latent": 0.9875959531218723,
+    "heat_index": -0.2758333333333333,
+    "stress_true": [
+      177.44621582732404,
+      152.9508925966451,
+      163.00147797233998
+    ],
+    "uts_true": 191.90712997321327,
+    "base_metal_uts": 262.0,
+    "weld_index": 4
+  }
+}
