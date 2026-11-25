@@ -20,58 +20,46 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from _common import sheet  # noqa: E402
-from _mock import fsw  # noqa: E402
-from _mock.lab import DEFAULT_FOLDER, MockLab  # noqa: E402
-
-# =========================================================== MOCK CONFIG ==
-CAMPAIGN_SEED = 0  # must match the demo notebook to reproduce its welds
-WELD_FOLDER = DEFAULT_FOLDER
-MOCK_PARAMS = fsw.MockParams(
-    importance={"R": 1.0, "W": 1.0, "D": 1.0, "P": 1.0, "O": 1.0},
-    drift_stress_per_weld=0.0,  # e.g. 1.5 to see drift in the control plot
-)
-READINGS_PER_POSITION = (1, 3)  # operator takes 1 to 3 readings per position
-CONTEXT = {"ambient": "25 C"}
-EXPERIMENT_FILE = Path(__file__).resolve().parent / "data" / "experiments.xlsx"
-# ==========================================================================
+from common import settings, sheet  # noqa: E402
+from _mock.lab import MockLab  # noqa: E402
 
 
-def measure(lab: MockLab, weld_id: str, settings: dict) -> dict:
+
+def measure(lab: MockLab, weld_id: str, weld_settings: dict) -> dict:
     """Finish every step still missing for this weld and return its sheet values."""
     if not lab.exists(weld_id):
-        lab.weld(weld_id, **settings)
+        lab.weld(weld_id, **weld_settings)
     state = lab.state(weld_id)
     q = state["visual_quality"]
     if q is None:
         q = lab.inspect(weld_id)
 
-    values = {"visual_quality": q, **CONTEXT, "tool_state": f"weld {weld_id}"}
+    values = {"visual_quality": q, **settings.MOCK.CONTEXT, "tool_state": f"weld {weld_id}"}
     if q == 0:
         return values  # D1: nothing else is measured
 
     rng = np.random.default_rng([state["seed"], 7])
     if not state["specimens_cut"]:
-        for p in range(1, sheet.N_POSITIONS + 1):
+        for p in range(1, settings.N_POSITIONS + 1):
             if not state["stress"][str(p)]:
-                lo, hi = READINGS_PER_POSITION
+                lo, hi = settings.MOCK.READINGS_PER_POSITION
                 for _ in range(int(rng.integers(lo, hi + 1))):
                     lab.read_stress(weld_id, p)
         lab.cut_specimens(weld_id)
-    for k in range(1, sheet.N_TENSILE_SPECIMENS + 1):
+    for k in range(1, settings.N_TENSILE_SPECIMENS + 1):
         if lab.state(weld_id)["specimens"][str(k)] is None:
             lab.test_specimen(weld_id, k)
 
     state = lab.state(weld_id)
-    for p in range(1, sheet.N_POSITIONS + 1):
+    for p in range(1, settings.N_POSITIONS + 1):
         readings = state["stress"][str(p)]
-        if len(readings) > sheet.MAX_REPEATS:
+        if len(readings) > settings.MAX_REPEATS:
             print(
-                f"  {weld_id} P{p}: {len(readings)} readings, only the first {sheet.MAX_REPEATS} fit the sheet"
+                f"  {weld_id} P{p}: {len(readings)} readings, only the first {settings.MAX_REPEATS} fit the sheet"
             )
         for col, v in zip(sheet.stress_reading_cols(p), readings):
             values[col] = v
-    for k in range(1, sheet.N_TENSILE_SPECIMENS + 1):
+    for k in range(1, settings.N_TENSILE_SPECIMENS + 1):
         values[f"uts_{k}"] = state["specimens"][str(k)]["uts"]
         values[f"fracture_{k}"] = state["specimens"][str(k)]["fracture"]
     return values
@@ -86,11 +74,11 @@ def main(argv: list[str] | None = None) -> None:
     group.add_argument("--all", action="store_true", help="fill every remaining batch")
     args = parser.parse_args(argv)
 
-    if not EXPERIMENT_FILE.exists():
+    if not settings.EXPERIMENT_FILE.exists():
         sys.exit(
-            f"{EXPERIMENT_FILE} not found. Run `python A01.py` first to create the design."
+            f"{settings.EXPERIMENT_FILE} not found. Run `python A01.py` first to create the design."
         )
-    df = sheet.read(EXPERIMENT_FILE)
+    df = sheet.read(settings.EXPERIMENT_FILE)
     todo = df[df["visual_quality"].isna()]
     if todo.empty:
         print("Nothing to fill: every weld already has a visual_quality.")
@@ -104,24 +92,24 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Batch {batch} has nothing left to fill.")
             return
 
-    lab = MockLab(WELD_FOLDER, campaign_seed=CAMPAIGN_SEED, params=MOCK_PARAMS)
+    lab = MockLab()
     updates = {}
     for _, r in rows.sort_values(["batch", "order_in_batch"]).iterrows():
-        settings = {
+        weld_settings = {
             "R": int(round(float(r["R"]))),
             "W": int(round(float(r["W"]))),
             "D": int(round(float(r["D"]))),
             "P": float(r["P"]),
             "O": r["O"],
         }
-        updates[r["weld_id"]] = measure(lab, r["weld_id"], settings)
+        updates[r["weld_id"]] = measure(lab, r["weld_id"], weld_settings)
         v = updates[r["weld_id"]]
         uts = ", UTS " + "/".join(str(v[c]) for c in sheet.UTS_VALUE_COLS) if "uts_1" in v else ""
         print(
             f"  {r['weld_id']} (batch {r['batch']}): quality {v['visual_quality']}{uts}"
         )
 
-    n = sheet.write_values(EXPERIMENT_FILE, updates)
+    n = sheet.write_values(settings.EXPERIMENT_FILE, updates)
     print(
         f"Wrote {n} cell(s) for {len(updates)} weld(s). Now run `python A01.py` to check them."
     )

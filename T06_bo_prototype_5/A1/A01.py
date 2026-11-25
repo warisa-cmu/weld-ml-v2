@@ -7,15 +7,16 @@ Run it any time:
     python A01.py --check      # check and report, but do not write computed columns
 
 First run: builds 12 Sobol welds (6 per orientation, 2 per orientation per batch)
-plus one control weld per batch, in random welding order, and writes
-data/experiments.xlsx for the lab.
+plus one control weld per batch, in random welding order, and writes the
+spreadsheet (settings.EXPERIMENT_FILE, data/experiments.xlsx) for the lab.
 
 Later runs: read the spreadsheet, validate the lab's entries, write the grey
 computed columns (position means, stress, uts_mean, d_code, status, flags),
 print progress per batch and redraw the control-weld plot. Lab input cells are
 never changed, and a backup is taken before every write.
 
-All parameters are in the CONFIG block below.
+All settings are in common/settings.py: the campaign-wide ones and settings.A1.
+Each run warns if they differ from those saved when the spreadsheet was created.
 """
 
 from __future__ import annotations
@@ -31,92 +32,56 @@ from scipy.stats import qmc
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from _common import sheet  # noqa: E402
-
-# ================================================================== CONFIG ==
-SEED = 2026  # fixes the Sobol design and the welding order
-
-# Search space (protocol, "Experiment definition"). S is fixed for the campaign.
-BOUNDS = {"R": (1400, 2000), "W": (40, 100), "D": (10, 30), "P": (0.03, 0.18)}
-ORIENTATIONS = ("O1", "O2")
-TOOL_SHAPE = "TBD"  # the fixed tool-shape level S, recorded in the settings sheet
-
-# Smallest step the machine can set. Sobol values are rounded to these.
-RESOLUTION = {"R": 10, "W": 1, "D": 1, "P": 0.005}
-
-# Design size.
-N_BATCHES = 3
-N_PER_ORIENTATION = 6  # space-filling welds per orientation over all A1 batches
-FIRST_WELD_NUMBER = 1  # weld_ids run W001, W002, ... in welding order
-
-# Control weld: centre of the ranges, one per A1 batch, at a random position.
-CONTROL = {"R": 1700, "W": 70, "D": 20, "P": 0.105, "O": "O1"}
-CONTROLS_PER_BATCH = 1
-
-# How measurements are reduced to one number per weld.
-STRESS_AGGREGATE = "mean"  # "mean" or "max" over the 3 positions -> column `stress`
-OUTLIER_MPA = (
-    25.0  # with 3+ readings at a position, use the median if one is this far off
-)
-STRESS_RANGE = (-1000.0, 1000.0)  # plausible stress reading, MPa (catches typos)
-UTS_RANGE = (0.0, 1000.0)  # plausible UTS of one tensile specimen, MPa
-
-# Engineering limits (not used in A1; recorded for A2/A3).
-MAXIMUM_STRESS = "TBD"
-MINIMUM_UTS = "TBD"
+from common import settings, sheet  # noqa: E402
 
 PHASE = "A1"
-DATA_DIR = Path(__file__).resolve().parent / "data"
-EXPERIMENT_FILE = DATA_DIR / "experiments.xlsx"
-CONTROL_PLOT = DATA_DIR / "control_welds.png"
-# ============================================================================
 
 
 def _round_to_grid(name: str, value: float) -> float:
-    lo, hi = BOUNDS[name]
-    step = RESOLUTION[name]
+    lo, hi = settings.BOUNDS[name]
+    step = settings.RESOLUTION[name]
     v = min(max(round(value / step) * step, lo), hi)
     return int(round(v)) if name in ("R", "W", "D") else round(v, 6)
 
 
 def build_design() -> pd.DataFrame:
     """The full A1 plan: one row per weld, sorted in welding order."""
-    if N_PER_ORIENTATION % N_BATCHES:
-        raise ValueError("N_PER_ORIENTATION must split evenly over N_BATCHES.")
-    per_batch = N_PER_ORIENTATION // N_BATCHES
-    names = list(BOUNDS)
-    rng = np.random.default_rng(SEED)
+    if settings.A1.N_PER_ORIENTATION % settings.A1.N_BATCHES:
+        raise ValueError("settings.A1.N_PER_ORIENTATION must split evenly over settings.A1.N_BATCHES.")
+    per_batch = settings.A1.N_PER_ORIENTATION // settings.A1.N_BATCHES
+    names = list(settings.BOUNDS)
+    rng = np.random.default_rng(settings.A1.SEED)
 
     welds = []
-    for k, orientation in enumerate(ORIENTATIONS):
-        sampler = qmc.Sobol(d=len(names), scramble=True, seed=SEED + 1000 * (k + 1))
+    for k, orientation in enumerate(settings.ORIENTATIONS):
+        sampler = qmc.Sobol(d=len(names), scramble=True, seed=settings.A1.SEED + 1000 * (k + 1))
         # Sobol balance guarantees require a power-of-two count; this design intentionally takes the first N points.
-        unit = sampler.random(N_PER_ORIENTATION)
-        lows = [BOUNDS[n][0] for n in names]
-        highs = [BOUNDS[n][1] for n in names]
+        unit = sampler.random(settings.A1.N_PER_ORIENTATION)
+        lows = [settings.BOUNDS[n][0] for n in names]
+        highs = [settings.BOUNDS[n][1] for n in names]
         points = qmc.scale(unit, lows, highs)
         for i, pt in enumerate(points):
-            settings = {n: _round_to_grid(n, v) for n, v in zip(names, pt)}
+            values = {n: _round_to_grid(n, v) for n, v in zip(names, pt)}
             # Consecutive Sobol points go to the same batch, so every batch
             # prefix of the sequence is itself spread out.
             welds.append(
                 {
-                    **settings,
+                    **values,
                     "O": orientation,
                     "type": "space-filling",
                     "batch": i // per_batch + 1,
                 }
             )
 
-    for b in range(1, N_BATCHES + 1):
-        for _ in range(CONTROLS_PER_BATCH):
-            welds.append({**CONTROL, "type": "control", "batch": b})
+    for b in range(1, settings.A1.N_BATCHES + 1):
+        for _ in range(settings.A1.CONTROLS_PER_BATCH):
+            welds.append({**settings.CONTROL, "type": "control", "batch": b})
 
     df = pd.DataFrame(welds)
     dup = df[df["type"] == "space-filling"].duplicated(subset=[*names, "O"])
     if dup.any():
         raise ValueError(
-            "Rounding produced duplicate welds; change SEED or RESOLUTION."
+            "Rounding produced duplicate welds; change settings.A1.SEED or settings.RESOLUTION."
         )
 
     # Random welding order inside each batch (the control lands at a random position).
@@ -124,38 +89,14 @@ def build_design() -> pd.DataFrame:
     for b, idx in df.groupby("batch").groups.items():
         df.loc[idx, "order_in_batch"] = rng.permutation(len(idx)) + 1
     df = df.sort_values(["batch", "order_in_batch"]).reset_index(drop=True)
-    df["weld_id"] = [f"W{FIRST_WELD_NUMBER + i:03d}" for i in range(len(df))]
+    df["weld_id"] = [f"W{settings.A1.FIRST_WELD_NUMBER + i:03d}" for i in range(len(df))]
     df["phase"] = PHASE
     return df[[*sheet.ID_COLS, *sheet.SETTING_COLS]]
 
 
-def design_settings() -> dict:
-    return {
-        "phase": PHASE,
-        "created": date.today().isoformat(),
-        "seed": SEED,
-        "tool_shape_S": TOOL_SHAPE,
-        "orientations": ",".join(ORIENTATIONS),
-        "bounds": str(BOUNDS),
-        "resolution": str(RESOLUTION),
-        "control": str(CONTROL),
-        "stress_aggregate": STRESS_AGGREGATE,
-        "outlier_mpa": OUTLIER_MPA,
-        "MAXIMUM_STRESS": MAXIMUM_STRESS,
-        "MINIMUM_UTS": MINIMUM_UTS,
-    }
-
-
-def derive(df: pd.DataFrame) -> pd.DataFrame:
-    return sheet.derive(
-        df,
-        bounds=BOUNDS,
-        orientations=ORIENTATIONS,
-        stress_aggregate=STRESS_AGGREGATE,
-        outlier_mpa=OUTLIER_MPA,
-        stress_range=STRESS_RANGE,
-        uts_range=UTS_RANGE,
-    )
+def design_record() -> dict:
+    """What is saved in the spreadsheet's settings sheet when it is created."""
+    return {"phase": PHASE, "created": date.today().isoformat(), **settings.record(settings.A1)}
 
 
 def _print_batch(df: pd.DataFrame, batch: int) -> None:
@@ -167,7 +108,7 @@ def _print_batch(df: pd.DataFrame, batch: int) -> None:
 
 
 def report(df: pd.DataFrame) -> None:
-    print(f"\n{EXPERIMENT_FILE}")
+    print(f"\n{settings.EXPERIMENT_FILE}")
     for b, rows in df.groupby("batch"):
         n_done = (rows["status"] == "complete").sum()
         n_err = rows["status"].astype(str).str.startswith("ERROR").sum()
@@ -193,7 +134,7 @@ def report(df: pd.DataFrame) -> None:
         print(
             f"\nCompleted welds: {len(done)}  |  failed (D1): {n_d1}  |  "
             f"tensile-tested (D2): {(done['d_code'] == 'D2').sum()}  |  "
-            f"tensile specimens used: {sheet.N_TENSILE_SPECIMENS * (done['d_code'] == 'D2').sum()}"
+            f"tensile specimens used: {settings.N_TENSILE_SPECIMENS * (done['d_code'] == 'D2').sum()}"
         )
         if len(done) >= 4 and n_d1 / len(done) > 0.5:
             print(
@@ -220,7 +161,7 @@ def plot_controls(df: pd.DataFrame) -> bool:
 
     metrics = [
         ("visual_quality", "Visual quality"),
-        ("stress", f"Stress ({STRESS_AGGREGATE}), MPa"),
+        ("stress", f"Stress ({settings.STRESS_AGGREGATE}), MPa"),
         ("uts_mean", "UTS, MPa"),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(11, 3.2), constrained_layout=True)
@@ -253,7 +194,7 @@ def plot_controls(df: pd.DataFrame) -> bool:
         ax.grid(alpha=0.3)
     axes[0].legend(fontsize=7, loc="lower left")
     fig.suptitle("Control welds: a flat line means no drift", fontsize=10)
-    fig.savefig(CONTROL_PLOT, dpi=120)
+    fig.savefig(settings.CONTROL_PLOT, dpi=120)
     plt.close(fig)
     return True
 
@@ -272,29 +213,30 @@ def main(argv: list[str] | None = None) -> pd.DataFrame | None:
     )
     args = parser.parse_args(argv)
 
-    if args.preview or not EXPERIMENT_FILE.exists():
+    if args.preview or not settings.EXPERIMENT_FILE.exists():
         design = build_design()
-        for b in range(1, N_BATCHES + 1):
+        for b in range(1, settings.A1.N_BATCHES + 1):
             print(f"\nBatch {b}")
             _print_batch(design, b)
         if args.preview:
             return design
         sheet.create_workbook(
-            EXPERIMENT_FILE, design.to_dict("records"), design_settings()
+            settings.EXPERIMENT_FILE, design.to_dict("records"), design_record()
         )
         print(
-            f"\nCreated {EXPERIMENT_FILE} with {len(design)} welds. Weld batch 1 in the order shown."
+            f"\nCreated {settings.EXPERIMENT_FILE} with {len(design)} welds. Weld batch 1 in the order shown."
         )
         return design
 
-    df = sheet.read(EXPERIMENT_FILE)
-    saved = sheet.read_settings(EXPERIMENT_FILE)
-    if str(saved.get("seed")) != str(SEED):
-        print(
-            f"Note: the spreadsheet was designed with seed {saved.get('seed')}, CONFIG has {SEED}."
-        )
+    df = sheet.read(settings.EXPERIMENT_FILE)
+    changes = sheet.settings_changes(settings.EXPERIMENT_FILE, settings.record(settings.A1))
+    if changes:
+        print("Note: common/settings.py differs from the settings saved in the spreadsheet:")
+        for line in changes:
+            print(f"  {line}")
+        print("  Design settings only matter when the spreadsheet is created; the others apply from this run.")
 
-    computed = derive(df)
+    computed = sheet.derive(df)
     df[sheet.COMPUTED_COLS] = computed
     if not args.check:
         updates = {
@@ -302,7 +244,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame | None:
             for i, r in df.iterrows()
         }
         try:
-            n = sheet.write_values(EXPERIMENT_FILE, updates)
+            n = sheet.write_values(settings.EXPERIMENT_FILE, updates)
             print(
                 f"Updated {n} computed cell(s)."
                 if n
@@ -314,7 +256,7 @@ def main(argv: list[str] | None = None) -> pd.DataFrame | None:
             )
     report(df)
     if plot_controls(df):
-        print(f"\nControl plot: {CONTROL_PLOT}")
+        print(f"\nControl plot: {settings.CONTROL_PLOT}")
     return df
 
 

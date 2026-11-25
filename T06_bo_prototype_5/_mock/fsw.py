@@ -33,10 +33,7 @@ from typing import Any
 
 import numpy as np
 
-from _common.sheet import N_POSITIONS, N_TENSILE_SPECIMENS
-
-BOUNDS = {"R": (1400.0, 2000.0), "W": (40.0, 100.0), "D": (10.0, 30.0), "P": (0.03, 0.18)}
-ORIENTATIONS = ("O1", "O2")
+from common import settings
 
 # Keys for the independent random streams of one weld.
 _STREAM_WELD, _STREAM_STRESS, _STREAM_TENSILE = 0, 1, 2
@@ -44,7 +41,10 @@ _STREAM_WELD, _STREAM_STRESS, _STREAM_TENSILE = 0, 1, 2
 
 @dataclass
 class MockParams:
-    """Knobs of the mock. Defaults give about 1 in 5 failed welds over the full ranges."""
+    """Knobs of the mock. Defaults give about 1 in 5 failed welds over the full ranges.
+
+    Change them through settings.MOCK.PARAMS; see `from_settings`.
+    """
 
     # Effect strength of each input, 0 to 1. A weight of 0 removes the input's
     # effect entirely (it behaves as if set at the centre of its range).
@@ -75,6 +75,11 @@ class MockParams:
     def from_dict(cls, d: dict[str, Any]) -> "MockParams":
         return cls(**d)
 
+    @classmethod
+    def from_settings(cls) -> "MockParams":
+        """The defaults with the overrides in settings.MOCK.PARAMS."""
+        return cls(**settings.MOCK.PARAMS)
+
 
 def weld_seed(campaign_seed: int, weld_id: str) -> int:
     """Stable per-weld seed, so a weld_id always gives the same weld."""
@@ -88,14 +93,14 @@ def _rng(seed: int, *keys: int) -> np.random.Generator:
 def _normalised(R: float, W: float, D: float, P: float, O: str, imp: dict[str, float]):
     x = {}
     for name, value in {"R": R, "W": W, "D": D, "P": P}.items():
-        lo, hi = BOUNDS[name]
+        lo, hi = settings.MOCK.BOUNDS[name]
         if not lo <= float(value) <= hi:
             raise ValueError(f"{name}={value} is outside [{lo:g}, {hi:g}]")
         raw = (float(value) - lo) / (hi - lo)
         x[name] = 0.5 + imp.get(name, 0.0) * (raw - 0.5)
-    if O not in ORIENTATIONS:
-        raise ValueError(f"O must be one of {ORIENTATIONS}, got {O!r}")
-    o = imp.get("O", 0.0) * ORIENTATIONS.index(O)
+    if O not in settings.ORIENTATIONS:
+        raise ValueError(f"O must be one of {settings.ORIENTATIONS}, got {O!r}")
+    o = imp.get("O", 0.0) * settings.ORIENTATIONS.index(O)
     return x, o
 
 
@@ -144,7 +149,7 @@ def make_weld(
         + rng.normal(0.0, p.weld_stress_std)
     )
     pattern = np.array([20.0 * x["D"], 0.0, 10.0 + 15.0 * h])
-    stress_true = mid + pattern + rng.normal(0.0, p.position_std, size=N_POSITIONS)
+    stress_true = mid + pattern + rng.normal(0.0, p.position_std, size=settings.N_POSITIONS)
 
     # UTS of the joint before the base-metal cap. Poorer welds are weaker.
     uts_true = (
@@ -182,8 +187,8 @@ def stress_reading(
     params: MockParams | None = None,
 ) -> float:
     """One stress reading (MPa) at position 1, 2 or 3. reading_no counts from 1."""
-    if position not in range(1, N_POSITIONS + 1):
-        raise ValueError(f"position must be 1 to {N_POSITIONS}, got {position}")
+    if position not in range(1, settings.N_POSITIONS + 1):
+        raise ValueError(f"position must be 1 to {settings.N_POSITIONS}, got {position}")
     p = params or MockParams()
     rng = _rng(seed, _STREAM_STRESS, position, reading_no)
     value = truth["stress_true"][position - 1] + rng.normal(0.0, p.reading_std)
@@ -199,9 +204,9 @@ def tensile_test(
     seed: int,
     params: MockParams | None = None,
 ) -> tuple[float, str]:
-    """Tensile-test one specimen (1 to N_TENSILE_SPECIMENS). Returns (UTS in MPa, fracture location)."""
-    if specimen not in range(1, N_TENSILE_SPECIMENS + 1):
-        raise ValueError(f"specimen must be 1 to {N_TENSILE_SPECIMENS}, got {specimen}")
+    """Tensile-test one specimen (1 to settings.N_TENSILE_SPECIMENS). Returns (UTS in MPa, fracture location)."""
+    if specimen not in range(1, settings.N_TENSILE_SPECIMENS + 1):
+        raise ValueError(f"specimen must be 1 to {settings.N_TENSILE_SPECIMENS}, got {specimen}")
     p = params or MockParams()
     rng = _rng(seed, _STREAM_TENSILE, specimen)
     cap = truth["base_metal_uts"]
@@ -241,11 +246,11 @@ def run_weld(
 
     rng = _rng(seed, 99)
     out["stress"] = {}
-    for pos in range(1, N_POSITIONS + 1):
+    for pos in range(1, settings.N_POSITIONS + 1):
         n = repeats if isinstance(repeats, int) else int(rng.integers(repeats[0], repeats[1] + 1))
         out["stress"][pos] = [
             stress_reading(truth, pos, k, seed=seed, params=p) for k in range(1, n + 1)
         ]
     if measure_uts:
-        out["uts"] = {c: tensile_test(truth, c, seed=seed, params=p) for c in range(1, N_TENSILE_SPECIMENS + 1)}
+        out["uts"] = {c: tensile_test(truth, c, seed=seed, params=p) for c in range(1, settings.N_TENSILE_SPECIMENS + 1)}
     return out

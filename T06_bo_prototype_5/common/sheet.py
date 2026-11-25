@@ -20,40 +20,30 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from common import settings
+
 SHEET = "experiments"
 SETTINGS_SHEET = "settings"
 
-# Residual stress: measured at N_POSITIONS fixed positions along each weld.
-# Because of surface roughness the operator may read the same position more
-# than once; the sheet has room for up to MAX_REPEATS raw readings per position.
-# MAX_REPEATS is a column limit, not a required count (1 reading is fine).
-N_POSITIONS = 3
-MAX_REPEATS = 3
-# Tensile test: N_TENSILE_SPECIMENS specimens are cut from each weld and tested.
-# The weld's UTS is their mean; each specimen's fracture location is recorded.
-N_TENSILE_SPECIMENS = 2
-QUALITY_LEVELS = (0, 1, 2, 3)
-FRACTURE_LOCATIONS = ("weld zone", "interface", "base metal")
-
 
 def stress_reading_cols(position: int) -> list[str]:
-    return [f"stress_p{position}_r{r}" for r in range(1, MAX_REPEATS + 1)]
+    return [f"stress_p{position}_r{r}" for r in range(1, settings.MAX_REPEATS + 1)]
 
 
-UTS_VALUE_COLS = [f"uts_{k}" for k in range(1, N_TENSILE_SPECIMENS + 1)]
-FRACTURE_COLS = [f"fracture_{k}" for k in range(1, N_TENSILE_SPECIMENS + 1)]
+UTS_VALUE_COLS = [f"uts_{k}" for k in range(1, settings.N_TENSILE_SPECIMENS + 1)]
+FRACTURE_COLS = [f"fracture_{k}" for k in range(1, settings.N_TENSILE_SPECIMENS + 1)]
 
 
 ID_COLS = ["weld_id", "batch", "phase", "order_in_batch", "type"]
 SETTING_COLS = ["R", "W", "D", "P", "O"]
 CONTEXT_COLS = ["tool_state", "ambient"]
 STRESS_READING_COLS = [
-    c for p in range(1, N_POSITIONS + 1) for c in stress_reading_cols(p)
+    c for p in range(1, settings.N_POSITIONS + 1) for c in stress_reading_cols(p)
 ]
 UTS_COLS = [c for pair in zip(UTS_VALUE_COLS, FRACTURE_COLS) for c in pair]
 MEASURE_COLS = ["visual_quality", *STRESS_READING_COLS, *UTS_COLS]
 COMPUTED_COLS = [
-    *[f"stress_p{p}" for p in range(1, N_POSITIONS + 1)],
+    *[f"stress_p{p}" for p in range(1, settings.N_POSITIONS + 1)],
     "stress_mean",
     "stress_max",
     "stress",
@@ -83,9 +73,12 @@ _GROUPS = [
 
 # --------------------------------------------------------------------- create
 def create_workbook(
-    path: Path, rows: list[dict[str, Any]], settings: dict[str, Any]
+    path: Path, rows: list[dict[str, Any]], record: dict[str, Any]
 ) -> None:
-    """Write a new, styled experiments workbook. Refuses to overwrite an existing file."""
+    """Write a new, styled experiments workbook. Refuses to overwrite an existing file.
+
+    record is saved in the settings sheet (see settings.record and settings_changes).
+    """
     path = Path(path)
     if path.exists():
         raise FileExistsError(f"{path} already exists; it is never overwritten.")
@@ -134,15 +127,15 @@ def create_workbook(
             letter = get_column_letter(col_index[c])
             dv.add(f"{letter}2:{letter}{last}")
 
-    add_list(["visual_quality"], QUALITY_LEVELS, "Visual quality must be 0, 1, 2 or 3.")
+    add_list(["visual_quality"], settings.QUALITY_LEVELS, "Visual quality must be 0, 1, 2 or 3.")
     add_list(
         FRACTURE_COLS,
-        FRACTURE_LOCATIONS,
+        settings.FRACTURE_LOCATIONS,
         "Pick a fracture location from the list.",
     )
     add_list(
         ["O"],
-        settings.get("orientations", ("O1", "O2")),
+        settings.ORIENTATIONS,
         "Orientation must be one of the listed levels.",
     )
     num = DataValidation(
@@ -161,8 +154,8 @@ def create_workbook(
 
     st = wb.create_sheet(SETTINGS_SHEET)
     st.append(["key", "value"])
-    for k, v in settings.items():
-        st.append([k, v if isinstance(v, (int, float, str)) or v is None else str(v)])
+    for k, v in record.items():
+        st.append([k, _cell_value(v)])
     st.append([])
     st.append(["Colour legend", ""])
     for name, _, colour in _GROUPS:
@@ -174,8 +167,8 @@ def create_workbook(
         "Fill only the yellow columns. Grey columns are recomputed by the script.",
         "If a setting was changed at the machine, overwrite R/W/D/P/O with the value actually used and say so in notes.",
         "visual_quality 0: leave stress and UTS blank (code D1).",
-        f"Stress: enter each raw reading; up to {MAX_REPEATS} readings per position, left to right.",
-        f"UTS: one value per tensile specimen in MPa ({N_TENSILE_SPECIMENS} per weld), with its fracture location.",
+        f"Stress: enter each raw reading; up to {settings.MAX_REPEATS} readings per position, left to right.",
+        f"UTS: one value per tensile specimen in MPa ({settings.N_TENSILE_SPECIMENS} per weld), with its fracture location.",
     ):
         st.append(["", line])
     for cell in st[1]:
@@ -206,6 +199,31 @@ def read_settings(path: Path) -> dict[str, Any]:
     return out
 
 
+def _cell_value(v: Any) -> Any:
+    """How a setting is stored in the settings sheet."""
+    return v if isinstance(v, (int, float, str)) or v is None else str(v)
+
+
+def _same(a: Any, b: Any) -> bool:
+    nums = (int, float)
+    if isinstance(a, nums) and isinstance(b, nums) and not isinstance(a, bool):
+        return math.isclose(float(a), float(b), rel_tol=1e-9, abs_tol=1e-12)
+    return str(a) == str(b)
+
+
+def settings_changes(path: Path, current: dict[str, Any]) -> list[str]:
+    """Differences between the settings saved in the spreadsheet and `current`."""
+    saved = read_settings(path)
+    out = []
+    for k, v in current.items():
+        now = _cell_value(v)
+        if k not in saved:
+            out.append(f"{k}: not recorded in the spreadsheet, now {now}")
+        elif not _same(saved[k], now):
+            out.append(f"{k}: {saved[k]} when the spreadsheet was created, now {now}")
+    return out
+
+
 def _blank(v: Any) -> bool:
     return (
         v is None
@@ -225,30 +243,20 @@ def _num(v: Any, name: str, issues: list[str]) -> float | None:
 
 
 # --------------------------------------------------------------------- derive
-def position_value(readings: list[float], outlier_mpa: float) -> tuple[float, bool]:
+def position_value(readings: list[float]) -> tuple[float, bool]:
     """Mean of the readings, or their median if 3+ readings and one is an outlier.
 
     Returns (value, used_median).
     """
     arr = np.asarray(readings, dtype=float)
     med = float(np.median(arr))
-    if len(arr) >= 3 and np.max(np.abs(arr - med)) > outlier_mpa:
+    if len(arr) >= 3 and np.max(np.abs(arr - med)) > settings.OUTLIER_MPA:
         return med, True
     return float(arr.mean()), False
 
 
-def derive_row(
-    row: pd.Series,
-    *,
-    bounds: dict[str, tuple[float, float]],
-    orientations: Iterable[str],
-    stress_aggregate: str,
-    outlier_mpa: float,
-    stress_range: tuple[float, float],
-    uts_range: tuple[float, float],
-    planned_code: str | None = None,
-) -> dict[str, Any]:
-    """Computed columns for one weld.
+def derive_row(row: pd.Series, *, planned_code: str | None = None) -> dict[str, Any]:
+    """Computed columns for one weld, using the checks and reductions in settings.
 
     planned_code is the code chosen before measuring (D3/D4 in A3, or D2 for an
     audit). Without it, quality 0 gives D1 and anything else D2.
@@ -257,23 +265,23 @@ def derive_row(
     flags: list[str] = []
     out: dict[str, Any] = {c: None for c in COMPUTED_COLS}
 
-    for name, (lo, hi) in bounds.items():
+    for name, (lo, hi) in settings.BOUNDS.items():
         v = _num(row[name], name, errors)
         if v is None:
             errors.append(f"{name} is blank")
         elif not lo <= v <= hi:
             errors.append(f"{name}={v:g} outside [{lo:g}, {hi:g}]")
-    if row["O"] not in tuple(orientations):
-        errors.append(f"O={row['O']!r} is not one of {tuple(orientations)}")
+    if row["O"] not in settings.ORIENTATIONS:
+        errors.append(f"O={row['O']!r} is not one of {settings.ORIENTATIONS}")
 
     q_entered = not _blank(row["visual_quality"])
     q = _num(row["visual_quality"], "visual_quality", errors)
-    if q is not None and q not in QUALITY_LEVELS:
+    if q is not None and q not in settings.QUALITY_LEVELS:
         errors.append(f"visual_quality={q:g} must be 0, 1, 2 or 3")
         q = None
 
     readings: dict[int, list[float]] = {}
-    for p in range(1, N_POSITIONS + 1):
+    for p in range(1, settings.N_POSITIONS + 1):
         vals: list[float] = []
         seen_blank = False
         for c in stress_reading_cols(p):
@@ -285,20 +293,20 @@ def derive_row(
                 continue
             if seen_blank:
                 flags.append(f"P{p}: gap before {c}")
-            if not stress_range[0] <= v <= stress_range[1]:
-                errors.append(f"{c}={v:g} outside plausible range {stress_range}")
+            if not settings.STRESS_RANGE[0] <= v <= settings.STRESS_RANGE[1]:
+                errors.append(f"{c}={v:g} outside plausible range {settings.STRESS_RANGE}")
             vals.append(v)
         readings[p] = vals
     uts = {}
     fracture = {}
-    for k in range(1, N_TENSILE_SPECIMENS + 1):
+    for k in range(1, settings.N_TENSILE_SPECIMENS + 1):
         u = _num(row[f"uts_{k}"], f"uts_{k}", errors)
-        if u is not None and not uts_range[0] <= u <= uts_range[1]:
-            errors.append(f"uts_{k}={u:g} outside plausible range {uts_range}")
+        if u is not None and not settings.UTS_RANGE[0] <= u <= settings.UTS_RANGE[1]:
+            errors.append(f"uts_{k}={u:g} outside plausible range {settings.UTS_RANGE}")
         uts[k] = u
         f = row[f"fracture_{k}"]
-        if not _blank(f) and f not in FRACTURE_LOCATIONS:
-            errors.append(f"fracture_{k}={f!r} is not one of {FRACTURE_LOCATIONS}")
+        if not _blank(f) and f not in settings.FRACTURE_LOCATIONS:
+            errors.append(f"fracture_{k}={f!r} is not one of {settings.FRACTURE_LOCATIONS}")
         fracture[k] = None if _blank(f) else f
     any_stress = any(readings.values())
     any_uts = any(v is not None for v in uts.values()) or any(fracture.values())
@@ -319,10 +327,10 @@ def derive_row(
     missing: list[str] = []
     if code in ("D2", "D3", "D4"):
         missing += [
-            f"stress P{p}" for p in range(1, N_POSITIONS + 1) if not readings[p]
+            f"stress P{p}" for p in range(1, settings.N_POSITIONS + 1) if not readings[p]
         ]
     if code in ("D2", "D3"):
-        for k in range(1, N_TENSILE_SPECIMENS + 1):
+        for k in range(1, settings.N_TENSILE_SPECIMENS + 1):
             if uts[k] is None:
                 missing.append(f"uts_{k}")
             if fracture[k] is None:
@@ -332,18 +340,18 @@ def derive_row(
 
     if code in ("D2", "D3", "D4"):
         pos_values = []
-        for p in range(1, N_POSITIONS + 1):
+        for p in range(1, settings.N_POSITIONS + 1):
             if readings[p]:
-                val, used_median = position_value(readings[p], outlier_mpa)
+                val, used_median = position_value(readings[p])
                 out[f"stress_p{p}"] = round(val, 2)
                 pos_values.append(val)
                 if used_median:
                     flags.append(f"P{p}: outlier, median used")
-        if len(pos_values) == N_POSITIONS:
+        if len(pos_values) == settings.N_POSITIONS:
             out["stress_mean"] = round(float(np.mean(pos_values)), 2)
             out["stress_max"] = round(float(np.max(pos_values)), 2)
             out["stress"] = (
-                out["stress_mean"] if stress_aggregate == "mean" else out["stress_max"]
+                out["stress_mean"] if settings.STRESS_AGGREGATE == "mean" else out["stress_max"]
             )
     if code in ("D2", "D3") and all(uts[k] is not None for k in uts):
         out["uts_mean"] = round(float(np.mean(list(uts.values()))), 2)
@@ -363,7 +371,7 @@ def derive_row(
 
 
 def derive(df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
-    """Computed columns for every row, indexed like df."""
+    """Computed columns for every row, indexed like df. kwargs go to derive_row."""
     return pd.DataFrame(
         [derive_row(r, **kwargs) for _, r in df.iterrows()], index=df.index
     )
@@ -381,9 +389,9 @@ def check_writable(path: Path) -> None:
         ) from exc
 
 
-def backup(path: Path, keep: int = 20) -> Path:
-    folder = path.parent / "backups"
-    folder.mkdir(exist_ok=True)
+def backup(path: Path, keep: int = settings.BACKUPS_KEPT) -> Path:
+    folder = settings.BACKUP_DIR
+    folder.mkdir(parents=True, exist_ok=True)
     target = folder / f"{path.stem}_{datetime.now():%Y%m%d-%H%M%S-%f}{path.suffix}"
     shutil.copy2(path, target)
     old = sorted(folder.glob(f"{path.stem}_*{path.suffix}"))

@@ -25,11 +25,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from _common.sheet import N_POSITIONS, N_TENSILE_SPECIMENS
+from common import settings
 
 from . import fsw
-
-DEFAULT_FOLDER = Path(__file__).resolve().parent / "welds"
 
 
 class LabError(Exception):
@@ -52,13 +50,14 @@ def _now() -> str:
 class MockLab:
     def __init__(
         self,
-        folder: str | Path = DEFAULT_FOLDER,
-        campaign_seed: int = 0,
+        folder: str | Path | None = None,
+        campaign_seed: int | None = None,
         params: fsw.MockParams | None = None,
     ):
-        self.folder = Path(folder)
-        self.campaign_seed = campaign_seed
-        self.params = params or fsw.MockParams()
+        """Defaults come from settings.MOCK; pass values only to override them."""
+        self.folder = Path(folder) if folder is not None else settings.MOCK.WELD_FOLDER
+        self.campaign_seed = settings.MOCK.CAMPAIGN_SEED if campaign_seed is None else campaign_seed
+        self.params = params or fsw.MockParams.from_settings()
 
     # ----------------------------------------------------------------- storage
     def path(self, weld_id: str) -> Path:
@@ -95,24 +94,24 @@ class MockLab:
         if self.exists(weld_id):
             raise LabError(f"{weld_id} is already welded. Discard it first to weld again.")
         seed = fsw.weld_seed(self.campaign_seed, weld_id)
-        settings = {"R": R, "W": W, "D": D, "P": P, "O": O}
+        weld_settings = {"R": R, "W": W, "D": D, "P": P, "O": O}
         truth = fsw.make_weld(
             R, W, D, P, O, seed=seed, weld_index=_weld_index(weld_id), params=self.params
         )
         rec = {
             "weld_id": weld_id,
             "welded_at": _now(),
-            "settings": settings,
+            "settings": weld_settings,
             "seed": seed,
             "visual_quality": None,
-            "stress": {str(p): [] for p in range(1, N_POSITIONS + 1)},
+            "stress": {str(p): [] for p in range(1, settings.N_POSITIONS + 1)},
             "specimens_cut": False,
-            "specimens": {str(k): None for k in range(1, N_TENSILE_SPECIMENS + 1)},
+            "specimens": {str(k): None for k in range(1, settings.N_TENSILE_SPECIMENS + 1)},
             "log": [],
             "_params": self.params.to_dict(),
             "_truth": truth,
         }
-        self._log(rec, "weld", **settings)
+        self._log(rec, "weld", **weld_settings)
         self._save(rec)
         return self.state(weld_id)
 

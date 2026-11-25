@@ -17,9 +17,8 @@ from typing import Any, Callable
 import ipywidgets as w
 import pandas as pd
 
-from _common.sheet import MAX_REPEATS, N_POSITIONS, N_TENSILE_SPECIMENS
+from common import settings, sheet
 
-from . import fsw
 from .lab import LabError, MockLab, ProtocolError
 
 _COLOURS = {"ok": "#1b7f3b", "protocol": "#b35c00", "error": "#b00020", "info": "#333"}
@@ -38,16 +37,16 @@ class LabDemo:
         self.W = w.IntText(description="W")
         self.D = w.IntText(description="D")
         self.P = w.BoundedFloatText(description="P", step=0.005, min=0.0, max=1.0)
-        self.O = w.Dropdown(description="O", options=list(fsw.ORIENTATIONS))
+        self.O = w.Dropdown(description="O", options=list(settings.ORIENTATIONS))
         for box in (self.R, self.W, self.D, self.P, self.O):
             box.layout = w.Layout(width="170px")
 
         self.weld_btn = w.Button(description="1. Weld", button_style="primary", icon="fire")
         self.inspect_btn = w.Button(description="2. Visual inspection", icon="eye")
-        self.stress_btns = [w.Button(description=f"3. Read stress P{p}") for p in range(1, N_POSITIONS + 1)]
+        self.stress_btns = [w.Button(description=f"3. Read stress P{p}") for p in range(1, settings.N_POSITIONS + 1)]
         self.cut_btn = w.Button(description="4. Cut specimens", icon="cut")
         self.specimen_btns = [
-            w.Button(description=f"5. Tensile specimen {k}") for k in range(1, N_TENSILE_SPECIMENS + 1)
+            w.Button(description=f"5. Tensile specimen {k}") for k in range(1, settings.N_TENSILE_SPECIMENS + 1)
         ]
         self.discard_btn = w.Button(description="Discard weld", button_style="danger", icon="trash")
         self.force = w.Checkbox(description="Override protocol warnings", indent=False)
@@ -93,7 +92,7 @@ class LabDemo:
 
     def reload(self) -> None:
         current = self.weld_dd.value
-        self.plan = pd.read_excel(self.experiment_file, sheet_name="experiments", dtype=object)
+        self.plan = pd.read_excel(self.experiment_file, sheet_name=sheet.SHEET, dtype=object)
         self.plan = self.plan.dropna(subset=["weld_id"]).sort_values(["batch", "order_in_batch"])
         options = []
         for _, r in self.plan.iterrows():
@@ -231,14 +230,14 @@ class LabDemo:
         q = state["visual_quality"]
         rows.append(("visual_quality", "—" if q is None else str(q)))
         notes = []
-        for p in range(1, N_POSITIONS + 1):
+        for p in range(1, settings.N_POSITIONS + 1):
             readings = state["stress"][str(p)]
             for k, v in enumerate(readings, start=1):
-                col = f"stress_p{p}_r{k}" if k <= MAX_REPEATS else f"(extra, in notes) P{p} #{k}"
+                col = f"stress_p{p}_r{k}" if k <= settings.MAX_REPEATS else f"(extra, in notes) P{p} #{k}"
                 rows.append((col, f"{v:.1f}"))
-            if len(readings) > MAX_REPEATS:
-                notes.append(f"P{p} has {len(readings)} readings; the sheet holds {MAX_REPEATS}.")
-        for k in range(1, N_TENSILE_SPECIMENS + 1):
+            if len(readings) > settings.MAX_REPEATS:
+                notes.append(f"P{p} has {len(readings)} readings; the sheet holds {settings.MAX_REPEATS}.")
+        for k in range(1, settings.N_TENSILE_SPECIMENS + 1):
             specimen = state["specimens"][str(k)]
             if specimen:
                 rows.append((f"uts_{k}", f"{specimen['uts']:.1f}"))
