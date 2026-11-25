@@ -33,8 +33,10 @@ RESOLUTION = {"R": 10, "W": 1, "D": 1, "P": 0.005}
 CONTROL = {"R": 1700, "W": 70, "D": 20, "P": 0.105, "O": "O1"}
 
 # Objective thresholds from the engineering requirement (used from A2 on).
-MAXIMUM_STRESS = "TBD"  # MPa
-MINIMUM_UTS = "TBD"  # MPa
+# PROVISIONAL values that fall inside the mock's range, so Ax can run in a dry
+# run. Replace them with the engineering requirement before the real campaign.
+MAXIMUM_STRESS = 260.0  # MPa
+MINIMUM_UTS = 230.0  # MPa
 
 # ========================================================= MEASUREMENT LAYOUT ==
 # Protocol, "Measurement procedures". These set the spreadsheet's columns, so a
@@ -73,6 +75,14 @@ BACKUP_DIR = DATA_DIR / "backups"
 BACKUPS_KEPT = 20
 CONTROL_PLOT = DATA_DIR / "control_welds.png"
 
+# ============================================================= LOCAL MACHINE ==
+# Visual Studio's vcvars64.bat. When Ax runs and the MSVC compiler is not on
+# PATH, it is loaded from here so BoTorch can build its fast kernels. Without
+# it Ax still works, only slower. Set to None to skip.
+VCVARS = Path(
+    r"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+)
+
 
 # ======================================================================== A1 ==
 class A1:
@@ -83,6 +93,35 @@ class A1:
     N_PER_ORIENTATION = 6  # space-filling welds per orientation over all A1 batches
     CONTROLS_PER_BATCH = 1
     FIRST_WELD_NUMBER = 1  # weld_ids run W001, W002, ... in welding order
+
+
+# ======================================================================== A3 ==
+class A3:
+    """A3 model-driven phase (protocol, "A3: Model-driven" and "Tensile quota")."""
+
+    SEED = 3026  # fixes the welding order and the audit draws
+    N_BATCHES = 7
+    WELDS_PER_BATCH = 4  # new model-driven welds per batch
+    CONTROL_BATCHES = (2, 5)  # A3 batches (1 = first A3 batch) that also get a control weld
+
+    # Tensile quota, counted in tested welds. Control welds do not count; audits do.
+    TENSILE_POOL = 14
+    MIN_TESTED_PER_BATCH = 1
+    MAX_TESTED_PER_BATCH = 3
+
+    # Score threshold for testing a weld. PLACEHOLDER: until the EHVI calculation
+    # exists, scores are seeded random numbers in [0, 1) (common/scoring.py).
+    SCORE_THRESHOLD = 0.5
+    TARGET_AUDITS = 3.5  # expected number of audits across A3
+
+    # Early generation (python A03.py --early): the most batches that may be
+    # waiting for tensile results when the next batch is generated.
+    MAX_BATCHES_WAITING = 1
+
+    # Ax. A1's 15 welds (12 space-filling + 3 controls) are the initialization.
+    AX_SEED = 42
+    INITIALIZATION_BUDGET = 15
+    MIN_OBSERVED_INITIALIZATION = 8  # D1 welds lack stress and UTS, so fewer count
 
 
 # ====================================================================== MOCK ==
@@ -126,6 +165,7 @@ _NOT_RECORDED = {
     "BACKUP_DIR",
     "BACKUPS_KEPT",
     "CONTROL_PLOT",
+    "VCVARS",
 }
 
 

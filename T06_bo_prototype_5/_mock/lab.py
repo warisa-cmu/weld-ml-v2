@@ -12,8 +12,9 @@ Steps and the rules the lab enforces:
 * LabError: physically impossible (re-testing a broken specimen, reading stress
   after the weld was cut into tensile specimens). Cannot be overridden.
 * ProtocolError: allowed physically but against the protocol (measuring a
-  quality-0 weld, cutting before stress is read everywhere). Pass force=True
-  to do it anyway.
+  quality-0 weld, cutting before stress is read everywhere, cutting an A3 weld
+  that is D4 or still waiting for its test decision). Pass force=True to do
+  it anyway.
 """
 
 from __future__ import annotations
@@ -142,12 +143,25 @@ class MockLab:
         self._save(rec)
         return value
 
-    def cut_specimens(self, weld_id: str, force: bool = False) -> None:
-        """Cut the tensile specimens. This destroys the weld for further stress readings."""
+    def cut_specimens(
+        self, weld_id: str, force: bool = False, decision: str | None = None
+    ) -> None:
+        """Cut the tensile specimens. This destroys the weld for further stress readings.
+
+        decision is the weld's test decision from the spreadsheet: None when no
+        decision is needed (A1, controls), "waiting" for an A3 weld A03.py has
+        not decided yet, or D2/D3/D4.
+        """
         rec = self._load(weld_id)
         if rec["specimens_cut"]:
             raise LabError(f"The specimens of {weld_id} are already cut.")
         if not force:
+            if decision == "waiting":
+                raise ProtocolError(
+                    "No test decision yet: read stress, then wait for the data scientist (A03.py)."
+                )
+            if decision == "D4":
+                raise ProtocolError("Test decision is D4: leave the weld uncut.")
             if rec["visual_quality"] is None:
                 raise ProtocolError("Rate visual quality before cutting specimens.")
             if rec["visual_quality"] == 0:

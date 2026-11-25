@@ -21,6 +21,17 @@ from common import settings, sheet
 
 from .lab import LabError, MockLab, ProtocolError
 
+def _decision_text(decision: str | None) -> str:
+    return {
+        None: "cut and test both specimens if visual quality is 1 to 3.",
+        "waiting": "not decided yet. Read stress at every position, enter it in the sheet, "
+        "then wait for the data scientist (A03.py) and press Reload sheet.",
+        "D3": "D3, cut and test both specimens.",
+        "D2": "D2 (audit), cut and test both specimens.",
+        "D4": "D4, leave the weld uncut.",
+    }.get(decision, f"{decision}?")
+
+
 _COLOURS = {"ok": "#1b7f3b", "protocol": "#b35c00", "error": "#b00020", "info": "#333"}
 
 
@@ -97,7 +108,14 @@ class LabDemo:
         options = []
         for _, r in self.plan.iterrows():
             mark = " ✓" if self.lab.exists(r["weld_id"]) else ""
-            options.append((f"{r['weld_id']} · batch {r['batch']} · #{r['order_in_batch']} · {r['type']}{mark}", r["weld_id"]))
+            decision = sheet.lab_decision(r)
+            tag = f" · {decision}" if decision not in (None, "waiting") else ""
+            options.append(
+                (
+                    f"{r['weld_id']} · {r['phase']} batch {r['batch']} · #{r['order_in_batch']} · {r['type']}{tag}{mark}",
+                    r["weld_id"],
+                )
+            )
         self._suppress = True
         try:
             self.weld_dd.options = options
@@ -130,6 +148,7 @@ class LabDemo:
         self.planned.value = (
             f"<b>Planned:</b> R {int(float(r['R']))}, W {int(float(r['W']))}, D {int(float(r['D']))}, "
             f"P {float(r['P']):.3f}, O {r['O']}. Edit the boxes to weld at different settings."
+            f"<br><b>Tensile test:</b> {_decision_text(sheet.lab_decision(r))}"
         )
         self._say("info", f"Selected {self.weld_id}.")
         self._refresh()
@@ -164,7 +183,9 @@ class LabDemo:
         return f"Stress reading at P{p}: {v:.1f} MPa."
 
     def _cut(self) -> str:
-        self.lab.cut_specimens(self.weld_id, force=self.force.value)
+        self.lab.cut_specimens(
+            self.weld_id, force=self.force.value, decision=sheet.lab_decision(self._row())
+        )
         return "Tensile specimens cut. The weld can no longer be read for stress."
 
     def _specimen(self, k: int) -> str:

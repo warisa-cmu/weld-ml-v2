@@ -171,23 +171,24 @@ A4 tests whether the settings the model recommends hold up, using 5 welds in one
 
 One spreadsheet holds one row per weld and is the single source of truth: the notebook rebuilds the Ax client from it every time. Record the following for every weld.
 
-| Column                               | Content                                                                         |
-| ------------------------------------ | ------------------------------------------------------------------------------- |
-| weld_id, batch, phase                | Identifier, batch number (1 to 11), A1, A3 or A4                                |
-| order_in_batch                       | Random welding order within the batch                                           |
-| type                                 | Space-filling, control, model-driven, audit or confirmation                     |
-| R, W, D, P, O                        | The settings actually used (record the fixed tool shape once, in the notes)     |
-| tool_state, ambient                  | Tool wear or weld count, and ambient conditions                                 |
-| visual_quality                       | 0, 1, 2 or 3                                                                    |
-| stress_p1_r1 to stress_p3_r3         | Every raw stress reading, up to 3 per position                                  |
-| stress_p1 to stress_p3               | Each position's value: mean of its readings, or the median if one is an outlier |
-| stress_mean, stress_max, stress      | Mean and maximum over the 3 positions, and the one used as the objective        |
-| uts_1, uts_2, fracture_1, fracture_2 | Both specimen values and where each fractured                                   |
-| uts_mean                             | Mean of the two specimens                                                       |
-| d_code                               | D1, D2, D3 or D4                                                                |
-| ehvi_score                           | Score at decision time (A3 only)                                                |
-| tests_available, tests_used          | Tensile quota left before the batch, and tested welds used in it (A3 only)      |
-| notes                                | Anything unusual: tool change, clamping problem, operator change                |
+| Column                               | Content                                                                          |
+| ------------------------------------ | -------------------------------------------------------------------------------- |
+| weld_id, batch, phase                | Identifier, batch number (1 to 11), A1, A3 or A4                                 |
+| order_in_batch                       | Random welding order within the batch                                            |
+| type                                 | Space-filling, control, model-driven, audit or confirmation                      |
+| R, W, D, P, O                        | The settings actually used (record the fixed tool shape once, in the notes)      |
+| tool_state, ambient                  | Tool wear or weld count, and ambient conditions                                  |
+| visual_quality                       | 0, 1, 2 or 3                                                                     |
+| stress_p1_r1 to stress_p3_r3         | Every raw stress reading, up to 3 per position                                   |
+| stress_p1 to stress_p3               | Each position's value: mean of its readings, or the median if one is an outlier  |
+| stress_mean, stress_max, stress      | Mean and maximum over the 3 positions, and the one used as the objective         |
+| uts_1, uts_2, fracture_1, fracture_2 | Both specimen values and where each fractured                                    |
+| uts_mean                             | Mean of the two specimens                                                        |
+| d_code                               | D1, D2, D3 or D4                                                                 |
+| test_decision                        | D3, D4 or D2 (audit): the A3 test decision, written once by the script (A3 only) |
+| ehvi_score                           | Score at decision time (A3 only)                                                 |
+| tests_available, tests_used          | Tensile quota left before the batch, and tested welds used in it (A3 only)       |
+| notes                                | Anything unusual: tool change, clamping problem, operator change                 |
 
 The d_code and ehvi_score columns matter later: if selection bias is suspected, the record of how each weld was chosen is needed.
 

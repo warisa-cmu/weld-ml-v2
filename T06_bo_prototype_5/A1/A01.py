@@ -32,7 +32,7 @@ from scipy.stats import qmc
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from common import settings, sheet  # noqa: E402
+from common import plots, settings, sheet  # noqa: E402
 
 PHASE = "A1"
 
@@ -147,56 +147,7 @@ def report(df: pd.DataFrame) -> None:
         print(f"\nCurrent batch {b}, in welding order:")
         _print_batch(df, b)
     else:
-        print("\nA1 is complete. Next: the A2 checkpoint analysis.")
-
-
-def plot_controls(df: pd.DataFrame) -> bool:
-    ctrl = df[(df["type"] == "control") & (df["status"] == "complete")]
-    if ctrl.empty:
-        return False
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    metrics = [
-        ("visual_quality", "Visual quality"),
-        ("stress", f"Stress ({settings.STRESS_AGGREGATE}), MPa"),
-        ("uts_mean", "UTS, MPa"),
-    ]
-    fig, axes = plt.subplots(1, 3, figsize=(11, 3.2), constrained_layout=True)
-    others = df[(df["type"] != "control") & (df["status"] == "complete")]
-    for ax, (col, label) in zip(axes, metrics):
-        # Other welds in grey give the scale: control scatter well inside that
-        # spread is noise, not drift.
-        ax.scatter(
-            others["batch"],
-            pd.to_numeric(others[col], errors="coerce"),
-            color="#bbbbbb",
-            s=14,
-            label="other welds",
-        )
-        y = pd.to_numeric(ctrl[col], errors="coerce")
-        ax.plot(ctrl["batch"], y, "o-", color="#1f77b4", label="control")
-        if col == "visual_quality":
-            ax.set_ylim(-0.3, 3.3)
-        for _, r in ctrl.iterrows():
-            ax.annotate(
-                r["weld_id"],
-                (r["batch"], pd.to_numeric(r[col], errors="coerce")),
-                textcoords="offset points",
-                xytext=(4, 4),
-                fontsize=7,
-            )
-        ax.set_xlabel("batch")
-        ax.set_title(label, fontsize=10)
-        ax.set_xticks(range(1, int(df["batch"].max()) + 1))
-        ax.grid(alpha=0.3)
-    axes[0].legend(fontsize=7, loc="lower left")
-    fig.suptitle("Control welds: a flat line means no drift", fontsize=10)
-    fig.savefig(settings.CONTROL_PLOT, dpi=120)
-    plt.close(fig)
-    return True
+        print("\nA1 is complete. Next: the A2 checkpoint analysis, then python A3/A03.py.")
 
 
 def main(argv: list[str] | None = None) -> pd.DataFrame | None:
@@ -254,8 +205,8 @@ def main(argv: list[str] | None = None) -> pd.DataFrame | None:
             print(
                 f"WARNING: {exc}\nThe report below is still correct; computed columns were not saved."
             )
-    report(df)
-    if plot_controls(df):
+    report(df[df["phase"] == PHASE])  # later phases report in their own scripts
+    if plots.plot_controls(df):
         print(f"\nControl plot: {settings.CONTROL_PLOT}")
     return df
 

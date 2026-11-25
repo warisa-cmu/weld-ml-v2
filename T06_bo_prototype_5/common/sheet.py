@@ -1,14 +1,17 @@
 """The experiments spreadsheet: schema, creation, reading, derived values and safe writes.
 
-One row per weld. The lab fills only the yellow input columns. The grey
-computed columns are rewritten by the phase scripts on every run, so nobody
-should edit them by hand. Shared by all phases so they read the data the same way.
+One row per weld, for the whole campaign. The lab fills only the yellow input
+columns. The grey computed columns are rewritten by the phase scripts on every
+run, and the purple test-decision columns are written once by A03.py when it
+decides which A3 welds to tensile-test; nobody should edit either by hand.
+Shared by all phases so they read the data the same way.
 """
 
 from __future__ import annotations
 
 import math
 import shutil
+from copy import copy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -24,6 +27,9 @@ from common import settings
 
 SHEET = "experiments"
 SETTINGS_SHEET = "settings"
+# Rows that get the drop-down lists and number checks when the workbook is
+# created, so batches appended later are covered too (the campaign has 50 welds).
+VALIDATED_ROWS = 300
 
 
 def stress_reading_cols(position: int) -> list[str]:
@@ -52,6 +58,11 @@ COMPUTED_COLS = [
     "status",
     "flags",
 ]
+# Written by A03.py when it decides which welds of an A3 batch to test.
+# test_decision: D3 (test), D4 (leave uncut) or D2 (audit, tested). Blank for
+# welds that need no decision (A1, controls) and for A3 welds still waiting.
+DECISION_COLS = ["test_decision", "ehvi_score", "tests_available", "tests_used"]
+TEST_DECISIONS = ("D2", "D3", "D4")
 NOTES_COLS = ["notes"]
 ALL_COLS = [
     *ID_COLS,
@@ -59,6 +70,7 @@ ALL_COLS = [
     *CONTEXT_COLS,
     *MEASURE_COLS,
     *COMPUTED_COLS,
+    *DECISION_COLS,
     *NOTES_COLS,
 ]
 
@@ -68,6 +80,7 @@ _GROUPS = [
     ("settings", SETTING_COLS, "DDEBF7"),
     ("lab input", [*CONTEXT_COLS, *MEASURE_COLS, *NOTES_COLS], "FFF2CC"),
     ("computed, do not edit", COMPUTED_COLS, "E7E6E6"),
+    ("test decision (A3), do not edit", DECISION_COLS, "E4DFEC"),
 ]
 
 
@@ -111,7 +124,7 @@ def create_workbook(
         ws.cell(row=i, column=col_index["P"]).number_format = "0.000"
     ws.freeze_panes = ws.cell(row=2, column=col_index["R"])
 
-    last = len(rows) + 1
+    last = VALIDATED_ROWS + 1
 
     def add_list(cols: Iterable[str], values: Iterable[Any], prompt: str) -> None:
         dv = DataValidation(
@@ -167,6 +180,7 @@ def create_workbook(
         "Fill only the yellow columns. Grey columns are recomputed by the script.",
         "If a setting was changed at the machine, overwrite R/W/D/P/O with the value actually used and say so in notes.",
         "visual_quality 0: leave stress and UTS blank (code D1).",
+        "A3 welds: read stress, then wait for test_decision. D3 or D2: cut and tensile-test. D4: leave the weld uncut.",
         f"Stress: enter each raw reading; up to {settings.MAX_REPEATS} readings per position, left to right.",
         f"UTS: one value per tensile specimen in MPa ({settings.N_TENSILE_SPECIMENS} per weld), with its fracture location.",
     ):
@@ -197,6 +211,32 @@ def read_settings(path: Path) -> dict[str, Any]:
         if isinstance(k, str) and k and not _blank(v):
             out[k] = v
     return out
+
+
+def add_settings(path: Path, values: dict[str, Any]) -> int:
+    """Add keys that are not yet in the settings sheet, below the existing ones.
+
+    Used when a later phase starts, so its settings are recorded too. Existing
+    keys are never changed. Returns the number of keys added.
+    """
+    path = Path(path)
+    saved = read_settings(path)
+    new = {k: v for k, v in values.items() if k not in saved}
+    if not new:
+        return 0
+    wb = load_workbook(path)
+    st = wb[SETTINGS_SHEET]
+    row = 2
+    while st.cell(row=row, column=1).value not in (None, ""):
+        row += 1
+    st.insert_rows(row, amount=len(new))
+    for i, (k, v) in enumerate(new.items()):
+        st.cell(row=row + i, column=1, value=k)
+        st.cell(row=row + i, column=2, value=_cell_value(v))
+    check_writable(path)
+    backup(path)
+    wb.save(path)
+    return len(new)
 
 
 def _cell_value(v: Any) -> Any:
@@ -255,11 +295,29 @@ def position_value(readings: list[float]) -> tuple[float, bool]:
     return float(arr.mean()), False
 
 
-def derive_row(row: pd.Series, *, planned_code: str | None = None) -> dict[str, Any]:
+def needs_test_decision(row: pd.Series) -> bool:
+    """A3 model-driven welds (and audits) are tested only if A03.py decides so."""
+    return row.get("phase") == "A3" and row.get("type") in ("model-driven", "audit")
+
+
+def lab_decision(row: pd.Series) -> str | None:
+    """What the lab may do with this weld's specimens.
+
+    None: no decision needed, test it if quality is 1 to 3 (A1, controls, A4).
+    "waiting": A3 weld without a test decision yet. Otherwise D2, D3 or D4.
+    """
+    if not needs_test_decision(row):
+        return None
+    value = row.get("test_decision")
+    return "waiting" if _blank(value) else str(value).strip()
+
+
+def derive_row(row: pd.Series) -> dict[str, Any]:
     """Computed columns for one weld, using the checks and reductions in settings.
 
-    planned_code is the code chosen before measuring (D3/D4 in A3, or D2 for an
-    audit). Without it, quality 0 gives D1 and anything else D2.
+    Quality 0 gives D1. Otherwise the code is the weld's test_decision (A3), or
+    D2 for welds that are always tested (A1, controls, A4). An A3 weld with
+    quality 1 to 3 and no decision yet has no code: it is waiting for A03.py.
     """
     errors: list[str] = []
     flags: list[str] = []
@@ -311,7 +369,14 @@ def derive_row(row: pd.Series, *, planned_code: str | None = None) -> dict[str, 
     any_stress = any(readings.values())
     any_uts = any(v is not None for v in uts.values()) or any(fracture.values())
 
+    decision = row.get("test_decision")
+    decision = None if _blank(decision) else str(decision).strip()
+    if decision is not None and decision not in TEST_DECISIONS:
+        errors.append(f"test_decision={decision!r} is not one of {TEST_DECISIONS}")
+        decision = None
+
     # Measurement code and what it requires.
+    awaiting_decision = False
     if q is None:
         code = None
         if (any_stress or any_uts) and not q_entered:
@@ -320,12 +385,18 @@ def derive_row(row: pd.Series, *, planned_code: str | None = None) -> dict[str, 
         code = "D1"
         if any_stress or any_uts:
             flags.append("D1 (quality 0): stress/UTS entered but ignored")
+    elif decision is None and needs_test_decision(row):
+        code = None
+        awaiting_decision = True
+        if any_uts:
+            flags.append("UTS entered before the test decision")
     else:
-        code = planned_code or "D2"
+        code = decision or "D2"
     out["d_code"] = code
+    measures_stress = code in ("D2", "D3", "D4") or awaiting_decision
 
     missing: list[str] = []
-    if code in ("D2", "D3", "D4"):
+    if measures_stress:
         missing += [
             f"stress P{p}" for p in range(1, settings.N_POSITIONS + 1) if not readings[p]
         ]
@@ -338,7 +409,7 @@ def derive_row(row: pd.Series, *, planned_code: str | None = None) -> dict[str, 
     if code == "D4" and any_uts:
         flags.append("D4: UTS entered although the weld should stay uncut")
 
-    if code in ("D2", "D3", "D4"):
+    if measures_stress:
         pos_values = []
         for p in range(1, settings.N_POSITIONS + 1):
             if readings[p]:
@@ -360,21 +431,21 @@ def derive_row(row: pd.Series, *, planned_code: str | None = None) -> dict[str, 
 
     if errors:
         out["status"] = "ERROR: " + "; ".join(errors)
-    elif code is None:
+    elif q is None:
         out["status"] = "to weld"
     elif missing:
         out["status"] = "needs: " + ", ".join(missing)
+    elif awaiting_decision:
+        out["status"] = "waiting for test decision"
     else:
         out["status"] = "complete"
     out["flags"] = "; ".join(flags) or None
     return out
 
 
-def derive(df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
-    """Computed columns for every row, indexed like df. kwargs go to derive_row."""
-    return pd.DataFrame(
-        [derive_row(r, **kwargs) for _, r in df.iterrows()], index=df.index
-    )
+def derive(df: pd.DataFrame) -> pd.DataFrame:
+    """Computed columns for every row, indexed like df."""
+    return pd.DataFrame([derive_row(r) for _, r in df.iterrows()], index=df.index)
 
 
 # ---------------------------------------------------------------------- write
@@ -434,29 +505,23 @@ def write_values(
     return changed
 
 
-# ------------------------------------------------------------------------- ax
-def ax_records(
-    df: pd.DataFrame, setting_cols: Iterable[str] = SETTING_COLS
-) -> list[dict[str, Any]]:
-    """Complete welds as {"weld_id", "parameters", "metrics"} ready for Ax attach/complete.
-
-    D1: visual_quality only. D4: plus stress. D2/D3: plus uts. Requires the
-    computed columns to be present (run the phase script first).
-    """
-    records = []
-    for _, r in df[df["status"] == "complete"].iterrows():
-        params = {}
-        for c in setting_cols:
-            v = r[c]
-            params[c] = (
-                v if c == "O" else (float(v) if c == "P" else int(round(float(v))))
-            )
-        metrics = {"visual_quality": float(r["visual_quality"])}
-        if r["d_code"] in ("D2", "D3", "D4"):
-            metrics["stress"] = float(r["stress"])
-        if r["d_code"] in ("D2", "D3"):
-            metrics["uts"] = float(r["uts_mean"])
-        records.append(
-            {"weld_id": r["weld_id"], "parameters": params, "metrics": metrics}
-        )
-    return records
+def append_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    """Add welds at the bottom of the experiments sheet, styled like the last row."""
+    path = Path(path)
+    wb = load_workbook(path)
+    ws = wb[SHEET]
+    header = {cell.value: cell.column for cell in ws[1] if cell.value}
+    unknown = {c for r in rows for c in r} - set(header)
+    if unknown:
+        raise KeyError(f"Unknown column(s) for {path.name}: {sorted(unknown)}")
+    last = ws.max_row
+    while last > 1 and ws.cell(row=last, column=header["weld_id"]).value in (None, ""):
+        last -= 1
+    for i, values in enumerate(rows, start=1):
+        for name, col in header.items():
+            cell = ws.cell(row=last + i, column=col)
+            cell._style = copy(ws.cell(row=last, column=col)._style)
+            cell.value = values.get(name)
+    check_writable(path)
+    backup(path)
+    wb.save(path)
