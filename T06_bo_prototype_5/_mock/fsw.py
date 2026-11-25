@@ -3,12 +3,12 @@
 Pure functions only: no files, no state. A weld is split into the same steps
 the lab follows, so a demo can reveal one measurement at a time:
 
-    truth = make_specimen(R, W, D, P, O, seed=...)    # the act of welding
+    truth = make_weld(R, W, D, P, O, seed=...)        # the act of welding
     q     = visual_inspection(truth)                   # 0, 1, 2 or 3
     s     = stress_reading(truth, position, reading_no, seed=...)   # one noisy reading
-    u, f  = tensile_test(truth, coupon, seed=...)      # UTS and fracture location
+    u, f  = tensile_test(truth, specimen, seed=...)    # UTS and fracture location
 
-Every random draw is keyed on (seed, step, position/coupon, reading number), so
+Every random draw is keyed on (seed, step, position/specimen, reading number), so
 the same sequence of actions always gives the same numbers, whether it comes
 from button clicks in the demo notebook or from an automated dry run.
 
@@ -21,7 +21,7 @@ dwell and deeper plunge mean more heat). Residual stress is lowest at a
 slightly cold weld (h = -0.15) and UTS is highest at a slightly hot weld
 (h = +0.15), so the two objectives trade off and there is a real Pareto front.
 Too cold or too hot a weld fails visual inspection (quality 0). UTS saturates
-at the base-metal strength, where coupons break in the base metal. O2 gives a
+at the base-metal strength, where tensile specimens break in the base metal. O2 gives a
 little less stress and a little less strength than O1.
 """
 
@@ -33,13 +33,12 @@ from typing import Any
 
 import numpy as np
 
+from _common.sheet import N_POSITIONS, N_TENSILE_SPECIMENS
+
 BOUNDS = {"R": (1400.0, 2000.0), "W": (40.0, 100.0), "D": (10.0, 30.0), "P": (0.03, 0.18)}
 ORIENTATIONS = ("O1", "O2")
-N_POSITIONS = 3
-N_COUPONS = 2
-FRACTURE_LOCATIONS = ("weld zone", "interface", "base metal")
 
-# Keys for the independent random streams of one specimen.
+# Keys for the independent random streams of one weld.
 _STREAM_WELD, _STREAM_STRESS, _STREAM_TENSILE = 0, 1, 2
 
 
@@ -62,8 +61,8 @@ class MockParams:
     reading_std: float = 6.0
     outlier_prob: float = 0.07
     outlier_size: float = 60.0
-    # Tensile coupons.
-    coupon_std: float = 5.0
+    # Tensile specimens.
+    specimen_std: float = 5.0
     base_metal_uts: float = 262.0
     # Drift with weld count (tool wear). 0 means no drift.
     drift_stress_per_weld: float = 0.0
@@ -77,8 +76,8 @@ class MockParams:
         return cls(**d)
 
 
-def specimen_seed(campaign_seed: int, weld_id: str) -> int:
-    """Stable per-weld seed, so a weld_id always gives the same specimen."""
+def weld_seed(campaign_seed: int, weld_id: str) -> int:
+    """Stable per-weld seed, so a weld_id always gives the same weld."""
     return zlib.crc32(f"{campaign_seed}:{weld_id}".encode())
 
 
@@ -100,7 +99,7 @@ def _normalised(R: float, W: float, D: float, P: float, O: str, imp: dict[str, f
     return x, o
 
 
-def make_specimen(
+def make_weld(
     R: float,
     W: float,
     D: float,
@@ -111,7 +110,7 @@ def make_specimen(
     weld_index: int = 0,
     params: MockParams | None = None,
 ) -> dict[str, Any]:
-    """Weld one specimen and return its hidden true properties.
+    """Make one weld and return its hidden true properties.
 
     weld_index is the position of the weld in the campaign (1, 2, ...); it only
     matters when drift is switched on.
@@ -195,18 +194,18 @@ def stress_reading(
 
 def tensile_test(
     truth: dict[str, Any],
-    coupon: int,
+    specimen: int,
     *,
     seed: int,
     params: MockParams | None = None,
 ) -> tuple[float, str]:
-    """Tensile-test coupon 1 or 2. Returns (UTS in MPa, fracture location)."""
-    if coupon not in range(1, N_COUPONS + 1):
-        raise ValueError(f"coupon must be 1 to {N_COUPONS}, got {coupon}")
+    """Tensile-test one specimen (1 to N_TENSILE_SPECIMENS). Returns (UTS in MPa, fracture location)."""
+    if specimen not in range(1, N_TENSILE_SPECIMENS + 1):
+        raise ValueError(f"specimen must be 1 to {N_TENSILE_SPECIMENS}, got {specimen}")
     p = params or MockParams()
-    rng = _rng(seed, _STREAM_TENSILE, coupon)
+    rng = _rng(seed, _STREAM_TENSILE, specimen)
     cap = truth["base_metal_uts"]
-    raw = truth["uts_true"] + rng.normal(0.0, p.coupon_std)
+    raw = truth["uts_true"] + rng.normal(0.0, p.specimen_std)
     if raw >= cap:
         return round(float(cap + rng.normal(0.0, 2.0)), 1), "base metal"
     p_interface = 0.3 + 0.15 * (3 - truth["quality"])
@@ -230,12 +229,12 @@ def run_weld(
     """Weld and measure in one call, following the measurement rules.
 
     Quality 0 stops after the visual rating (code D1). Otherwise stress is read
-    at every position and, if measure_uts, both coupons are tested.
+    at every position and, if measure_uts, every tensile specimen is tested.
     repeats is the number of readings per position, or a (min, max) range drawn
     per position to mimic an operator re-reading rough spots.
     """
     p = params or MockParams()
-    truth = make_specimen(R, W, D, P, O, seed=seed, weld_index=weld_index, params=p)
+    truth = make_weld(R, W, D, P, O, seed=seed, weld_index=weld_index, params=p)
     out: dict[str, Any] = {"visual_quality": visual_inspection(truth), "stress": None, "uts": None}
     if out["visual_quality"] == 0:
         return out
@@ -248,5 +247,5 @@ def run_weld(
             stress_reading(truth, pos, k, seed=seed, params=p) for k in range(1, n + 1)
         ]
     if measure_uts:
-        out["uts"] = {c: tensile_test(truth, c, seed=seed, params=p) for c in range(1, N_COUPONS + 1)}
+        out["uts"] = {c: tensile_test(truth, c, seed=seed, params=p) for c in range(1, N_TENSILE_SPECIMENS + 1)}
     return out

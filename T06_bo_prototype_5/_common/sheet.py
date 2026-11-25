@@ -23,9 +23,15 @@ from openpyxl.worksheet.datavalidation import DataValidation
 SHEET = "experiments"
 SETTINGS_SHEET = "settings"
 
+# Residual stress: measured at N_POSITIONS fixed positions along each weld.
+# Because of surface roughness the operator may read the same position more
+# than once; the sheet has room for up to MAX_REPEATS raw readings per position.
+# MAX_REPEATS is a column limit, not a required count (1 reading is fine).
 N_POSITIONS = 3
 MAX_REPEATS = 3
-N_COUPONS = 2
+# Tensile test: N_TENSILE_SPECIMENS specimens are cut from each weld and tested.
+# The weld's UTS is their mean; each specimen's fracture location is recorded.
+N_TENSILE_SPECIMENS = 2
 QUALITY_LEVELS = (0, 1, 2, 3)
 FRACTURE_LOCATIONS = ("weld zone", "interface", "base metal")
 
@@ -34,11 +40,17 @@ def stress_reading_cols(position: int) -> list[str]:
     return [f"stress_p{position}_r{r}" for r in range(1, MAX_REPEATS + 1)]
 
 
+UTS_VALUE_COLS = [f"uts_{k}" for k in range(1, N_TENSILE_SPECIMENS + 1)]
+FRACTURE_COLS = [f"fracture_{k}" for k in range(1, N_TENSILE_SPECIMENS + 1)]
+
+
 ID_COLS = ["weld_id", "batch", "phase", "order_in_batch", "type"]
 SETTING_COLS = ["R", "W", "D", "P", "O"]
-CONTEXT_COLS = ["plate_lot", "tool_state", "ambient"]
-STRESS_READING_COLS = [c for p in range(1, N_POSITIONS + 1) for c in stress_reading_cols(p)]
-UTS_COLS = ["uts_1", "fracture_1", "uts_2", "fracture_2"]
+CONTEXT_COLS = ["tool_state", "ambient"]
+STRESS_READING_COLS = [
+    c for p in range(1, N_POSITIONS + 1) for c in stress_reading_cols(p)
+]
+UTS_COLS = [c for pair in zip(UTS_VALUE_COLS, FRACTURE_COLS) for c in pair]
 MEASURE_COLS = ["visual_quality", *STRESS_READING_COLS, *UTS_COLS]
 COMPUTED_COLS = [
     *[f"stress_p{p}" for p in range(1, N_POSITIONS + 1)],
@@ -51,7 +63,14 @@ COMPUTED_COLS = [
     "flags",
 ]
 NOTES_COLS = ["notes"]
-ALL_COLS = [*ID_COLS, *SETTING_COLS, *CONTEXT_COLS, *MEASURE_COLS, *COMPUTED_COLS, *NOTES_COLS]
+ALL_COLS = [
+    *ID_COLS,
+    *SETTING_COLS,
+    *CONTEXT_COLS,
+    *MEASURE_COLS,
+    *COMPUTED_COLS,
+    *NOTES_COLS,
+]
 
 # Column groups and their colours in the workbook.
 _GROUPS = [
@@ -63,7 +82,9 @@ _GROUPS = [
 
 
 # --------------------------------------------------------------------- create
-def create_workbook(path: Path, rows: list[dict[str, Any]], settings: dict[str, Any]) -> None:
+def create_workbook(
+    path: Path, rows: list[dict[str, Any]], settings: dict[str, Any]
+) -> None:
     """Write a new, styled experiments workbook. Refuses to overwrite an existing file."""
     path = Path(path)
     if path.exists():
@@ -114,12 +135,27 @@ def create_workbook(path: Path, rows: list[dict[str, Any]], settings: dict[str, 
             dv.add(f"{letter}2:{letter}{last}")
 
     add_list(["visual_quality"], QUALITY_LEVELS, "Visual quality must be 0, 1, 2 or 3.")
-    add_list(["fracture_1", "fracture_2"], FRACTURE_LOCATIONS, "Pick a fracture location from the list.")
-    add_list(["O"], settings.get("orientations", ("O1", "O2")), "Orientation must be one of the listed levels.")
-    num = DataValidation(type="decimal", operator="between", formula1="-100000", formula2="100000",
-                         allow_blank=True, showErrorMessage=True, error="Enter a number.")
+    add_list(
+        FRACTURE_COLS,
+        FRACTURE_LOCATIONS,
+        "Pick a fracture location from the list.",
+    )
+    add_list(
+        ["O"],
+        settings.get("orientations", ("O1", "O2")),
+        "Orientation must be one of the listed levels.",
+    )
+    num = DataValidation(
+        type="decimal",
+        operator="between",
+        formula1="-100000",
+        formula2="100000",
+        allow_blank=True,
+        showErrorMessage=True,
+        error="Enter a number.",
+    )
     ws.add_data_validation(num)
-    for c in [*STRESS_READING_COLS, "uts_1", "uts_2"]:
+    for c in [*STRESS_READING_COLS, *UTS_VALUE_COLS]:
         letter = get_column_letter(col_index[c])
         num.add(f"{letter}2:{letter}{last}")
 
@@ -139,7 +175,7 @@ def create_workbook(path: Path, rows: list[dict[str, Any]], settings: dict[str, 
         "If a setting was changed at the machine, overwrite R/W/D/P/O with the value actually used and say so in notes.",
         "visual_quality 0: leave stress and UTS blank (code D1).",
         f"Stress: enter each raw reading; up to {MAX_REPEATS} readings per position, left to right.",
-        "UTS: one value per coupon in MPa, with its fracture location.",
+        f"UTS: one value per tensile specimen in MPa ({N_TENSILE_SPECIMENS} per weld), with its fracture location.",
     ):
         st.append(["", line])
     for cell in st[1]:
@@ -171,7 +207,11 @@ def read_settings(path: Path) -> dict[str, Any]:
 
 
 def _blank(v: Any) -> bool:
-    return v is None or (isinstance(v, float) and math.isnan(v)) or (isinstance(v, str) and not v.strip())
+    return (
+        v is None
+        or (isinstance(v, float) and math.isnan(v))
+        or (isinstance(v, str) and not v.strip())
+    )
 
 
 def _num(v: Any, name: str, issues: list[str]) -> float | None:
@@ -251,7 +291,7 @@ def derive_row(
         readings[p] = vals
     uts = {}
     fracture = {}
-    for k in range(1, N_COUPONS + 1):
+    for k in range(1, N_TENSILE_SPECIMENS + 1):
         u = _num(row[f"uts_{k}"], f"uts_{k}", errors)
         if u is not None and not uts_range[0] <= u <= uts_range[1]:
             errors.append(f"uts_{k}={u:g} outside plausible range {uts_range}")
@@ -278,15 +318,17 @@ def derive_row(
 
     missing: list[str] = []
     if code in ("D2", "D3", "D4"):
-        missing += [f"stress P{p}" for p in range(1, N_POSITIONS + 1) if not readings[p]]
+        missing += [
+            f"stress P{p}" for p in range(1, N_POSITIONS + 1) if not readings[p]
+        ]
     if code in ("D2", "D3"):
-        for k in range(1, N_COUPONS + 1):
+        for k in range(1, N_TENSILE_SPECIMENS + 1):
             if uts[k] is None:
                 missing.append(f"uts_{k}")
             if fracture[k] is None:
                 missing.append(f"fracture_{k}")
     if code == "D4" and any_uts:
-        flags.append("D4: UTS entered although the coupon should stay intact")
+        flags.append("D4: UTS entered although the weld should stay uncut")
 
     if code in ("D2", "D3", "D4"):
         pos_values = []
@@ -300,11 +342,13 @@ def derive_row(
         if len(pos_values) == N_POSITIONS:
             out["stress_mean"] = round(float(np.mean(pos_values)), 2)
             out["stress_max"] = round(float(np.max(pos_values)), 2)
-            out["stress"] = out["stress_mean"] if stress_aggregate == "mean" else out["stress_max"]
+            out["stress"] = (
+                out["stress_mean"] if stress_aggregate == "mean" else out["stress_max"]
+            )
     if code in ("D2", "D3") and all(uts[k] is not None for k in uts):
         out["uts_mean"] = round(float(np.mean(list(uts.values()))), 2)
         if all(f == "base metal" for f in fracture.values()):
-            flags.append("both coupons broke in base metal (UTS saturated)")
+            flags.append("every specimen broke in base metal (UTS saturated)")
 
     if errors:
         out["status"] = "ERROR: " + "; ".join(errors)
@@ -320,7 +364,9 @@ def derive_row(
 
 def derive(df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
     """Computed columns for every row, indexed like df."""
-    return pd.DataFrame([derive_row(r, **kwargs) for _, r in df.iterrows()], index=df.index)
+    return pd.DataFrame(
+        [derive_row(r, **kwargs) for _, r in df.iterrows()], index=df.index
+    )
 
 
 # ---------------------------------------------------------------------- write
@@ -346,7 +392,9 @@ def backup(path: Path, keep: int = 20) -> Path:
     return target
 
 
-def write_values(path: Path, updates: dict[str, dict[str, Any]], make_backup: bool = True) -> int:
+def write_values(
+    path: Path, updates: dict[str, dict[str, Any]], make_backup: bool = True
+) -> int:
     """Set cells in place, keyed by weld_id then column. Keeps formatting and other cells.
 
     Returns the number of cells that changed. Writes nothing if none changed.
@@ -355,7 +403,10 @@ def write_values(path: Path, updates: dict[str, dict[str, Any]], make_backup: bo
     wb = load_workbook(path)
     ws = wb[SHEET]
     header = {cell.value: cell.column for cell in ws[1] if cell.value}
-    rows = {ws.cell(row=i, column=header["weld_id"]).value: i for i in range(2, ws.max_row + 1)}
+    rows = {
+        ws.cell(row=i, column=header["weld_id"]).value: i
+        for i in range(2, ws.max_row + 1)
+    }
     changed = 0
     for weld_id, values in updates.items():
         if weld_id not in rows:
@@ -376,7 +427,9 @@ def write_values(path: Path, updates: dict[str, dict[str, Any]], make_backup: bo
 
 
 # ------------------------------------------------------------------------- ax
-def ax_records(df: pd.DataFrame, setting_cols: Iterable[str] = SETTING_COLS) -> list[dict[str, Any]]:
+def ax_records(
+    df: pd.DataFrame, setting_cols: Iterable[str] = SETTING_COLS
+) -> list[dict[str, Any]]:
     """Complete welds as {"weld_id", "parameters", "metrics"} ready for Ax attach/complete.
 
     D1: visual_quality only. D4: plus stress. D2/D3: plus uts. Requires the
@@ -387,11 +440,15 @@ def ax_records(df: pd.DataFrame, setting_cols: Iterable[str] = SETTING_COLS) -> 
         params = {}
         for c in setting_cols:
             v = r[c]
-            params[c] = v if c == "O" else (float(v) if c == "P" else int(round(float(v))))
+            params[c] = (
+                v if c == "O" else (float(v) if c == "P" else int(round(float(v))))
+            )
         metrics = {"visual_quality": float(r["visual_quality"])}
         if r["d_code"] in ("D2", "D3", "D4"):
             metrics["stress"] = float(r["stress"])
         if r["d_code"] in ("D2", "D3"):
             metrics["uts"] = float(r["uts_mean"])
-        records.append({"weld_id": r["weld_id"], "parameters": params, "metrics": metrics})
+        records.append(
+            {"weld_id": r["weld_id"], "parameters": params, "metrics": metrics}
+        )
     return records

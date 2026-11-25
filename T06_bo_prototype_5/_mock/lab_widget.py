@@ -1,4 +1,4 @@
-"""Jupyter widget for the lab demo: weld and measure a mock specimen one button at a time.
+"""Jupyter widget for the lab demo: weld and measure a mock weld one button at a time.
 
     from _mock.lab_widget import LabDemo
     LabDemo(experiment_file, lab).show()
@@ -17,10 +17,10 @@ from typing import Any, Callable
 import ipywidgets as w
 import pandas as pd
 
+from _common.sheet import MAX_REPEATS, N_POSITIONS, N_TENSILE_SPECIMENS
+
 from . import fsw
 from .lab import LabError, MockLab, ProtocolError
-
-MAX_REPEATS = 3  # stress readings per position that fit the spreadsheet
 
 _COLOURS = {"ok": "#1b7f3b", "protocol": "#b35c00", "error": "#b00020", "info": "#333"}
 
@@ -44,10 +44,12 @@ class LabDemo:
 
         self.weld_btn = w.Button(description="1. Weld", button_style="primary", icon="fire")
         self.inspect_btn = w.Button(description="2. Visual inspection", icon="eye")
-        self.stress_btns = [w.Button(description=f"3. Read stress P{p}") for p in range(1, fsw.N_POSITIONS + 1)]
-        self.cut_btn = w.Button(description="4. Cut coupons", icon="cut")
-        self.coupon_btns = [w.Button(description=f"5. Tensile coupon {c}") for c in range(1, fsw.N_COUPONS + 1)]
-        self.discard_btn = w.Button(description="Discard specimen", button_style="danger", icon="trash")
+        self.stress_btns = [w.Button(description=f"3. Read stress P{p}") for p in range(1, N_POSITIONS + 1)]
+        self.cut_btn = w.Button(description="4. Cut specimens", icon="cut")
+        self.specimen_btns = [
+            w.Button(description=f"5. Tensile specimen {k}") for k in range(1, N_TENSILE_SPECIMENS + 1)
+        ]
+        self.discard_btn = w.Button(description="Discard weld", button_style="danger", icon="trash")
         self.force = w.Checkbox(description="Override protocol warnings", indent=False)
 
         self.message = w.HTML()
@@ -62,8 +64,8 @@ class LabDemo:
         for p, b in enumerate(self.stress_btns, start=1):
             b.on_click(lambda _, p=p: self._run(lambda: self._stress(p)))
         self.cut_btn.on_click(lambda _: self._run(self._cut))
-        for c, b in enumerate(self.coupon_btns, start=1):
-            b.on_click(lambda _, c=c: self._run(lambda: self._coupon(c)))
+        for k, b in enumerate(self.specimen_btns, start=1):
+            b.on_click(lambda _, k=k: self._run(lambda: self._specimen(k)))
         self.discard_btn.on_click(lambda _: self._discard())
 
         left = w.VBox(
@@ -76,7 +78,7 @@ class LabDemo:
                 self.inspect_btn,
                 w.HBox(self.stress_btns),
                 self.cut_btn,
-                w.HBox(self.coupon_btns),
+                w.HBox(self.specimen_btns),
                 w.HBox([self.force, self.discard_btn]),
                 self.message,
             ],
@@ -118,7 +120,7 @@ class LabDemo:
         if self._suppress:
             return
         self._discard_armed = False
-        self.discard_btn.description = "Discard specimen"
+        self.discard_btn.description = "Discard weld"
         if self.weld_id is None:
             self._refresh()
             return
@@ -135,7 +137,7 @@ class LabDemo:
 
     def _run(self, action: Callable[[], str]) -> None:
         self._discard_armed = False
-        self.discard_btn.description = "Discard specimen"
+        self.discard_btn.description = "Discard weld"
         try:
             self._say("ok", action())
         except ProtocolError as exc:
@@ -151,7 +153,7 @@ class LabDemo:
         changed = [k for k in s if (s[k] != r[k] if k == "O" else abs(float(s[k]) - float(r[k])) > 1e-9)]
         note = f" Settings differ from the plan ({', '.join(changed)}): overwrite them in the sheet and add a note." if changed else ""
         self._mark_welded()
-        return f"Specimen {self.weld_id} welded.{note}"
+        return f"{self.weld_id} welded.{note}"
 
     def _inspect(self) -> str:
         q = self.lab.inspect(self.weld_id)
@@ -163,16 +165,16 @@ class LabDemo:
         return f"Stress reading at P{p}: {v:.1f} MPa."
 
     def _cut(self) -> str:
-        self.lab.cut_coupons(self.weld_id, force=self.force.value)
-        return "Coupons cut. The weld can no longer be read for stress."
+        self.lab.cut_specimens(self.weld_id, force=self.force.value)
+        return "Tensile specimens cut. The weld can no longer be read for stress."
 
-    def _coupon(self, c: int) -> str:
-        uts, fracture = self.lab.test_coupon(self.weld_id, c)
-        return f"Coupon {c}: UTS {uts:.1f} MPa, fracture in {fracture}."
+    def _specimen(self, k: int) -> str:
+        uts, fracture = self.lab.test_specimen(self.weld_id, k)
+        return f"Specimen {k}: UTS {uts:.1f} MPa, fracture in {fracture}."
 
     def _discard(self) -> None:
         if not self.lab.exists(self.weld_id):
-            self._say("info", f"{self.weld_id} has no specimen to discard.")
+            self._say("info", f"{self.weld_id} has not been welded; nothing to discard.")
             return
         if not self._discard_armed:
             self._discard_armed = True
@@ -181,7 +183,7 @@ class LabDemo:
             return
         self.lab.discard(self.weld_id)
         self._discard_armed = False
-        self.discard_btn.description = "Discard specimen"
+        self.discard_btn.description = "Discard weld"
         self._mark_welded()
         self._say("info", f"{self.weld_id} discarded. It can be welded again.")
         self._refresh()
@@ -206,7 +208,7 @@ class LabDemo:
     def _refresh(self) -> None:
         state = self.lab.state(self.weld_id) if self.weld_id and self.lab.exists(self.weld_id) else None
         welded = state is not None
-        cut = bool(state and state["coupons_cut"])
+        cut = bool(state and state["specimens_cut"])
         self.weld_btn.disabled = welded or self.weld_id is None
         for box in (self.R, self.W, self.D, self.P, self.O):
             box.disabled = welded
@@ -214,13 +216,13 @@ class LabDemo:
         for b in self.stress_btns:
             b.disabled = not welded or cut
         self.cut_btn.disabled = not welded or cut
-        for c, b in enumerate(self.coupon_btns, start=1):
-            b.disabled = not cut or state["coupons"][str(c)] is not None
+        for k, b in enumerate(self.specimen_btns, start=1):
+            b.disabled = not cut or state["specimens"][str(k)] is not None
         self.discard_btn.disabled = not welded
         self.card.value = self._card(state)
 
     def _card(self, state: dict[str, Any] | None) -> str:
-        head = f"<h4 style='margin:0 0 6px'>Specimen {html.escape(str(self.weld_id))}</h4>"
+        head = f"<h4 style='margin:0 0 6px'>Weld {html.escape(str(self.weld_id))}</h4>"
         if state is None:
             return _box(head + "<i>Not welded yet.</i>")
         rows: list[tuple[str, str]] = []
@@ -229,20 +231,20 @@ class LabDemo:
         q = state["visual_quality"]
         rows.append(("visual_quality", "—" if q is None else str(q)))
         notes = []
-        for p in range(1, fsw.N_POSITIONS + 1):
+        for p in range(1, N_POSITIONS + 1):
             readings = state["stress"][str(p)]
             for k, v in enumerate(readings, start=1):
                 col = f"stress_p{p}_r{k}" if k <= MAX_REPEATS else f"(extra, in notes) P{p} #{k}"
                 rows.append((col, f"{v:.1f}"))
             if len(readings) > MAX_REPEATS:
                 notes.append(f"P{p} has {len(readings)} readings; the sheet holds {MAX_REPEATS}.")
-        for c in range(1, fsw.N_COUPONS + 1):
-            coupon = state["coupons"][str(c)]
-            if coupon:
-                rows.append((f"uts_{c}", f"{coupon['uts']:.1f}"))
-                rows.append((f"fracture_{c}", coupon["fracture"]))
-            elif state["coupons_cut"]:
-                rows.append((f"uts_{c}", "<i>coupon intact</i>"))
+        for k in range(1, N_TENSILE_SPECIMENS + 1):
+            specimen = state["specimens"][str(k)]
+            if specimen:
+                rows.append((f"uts_{k}", f"{specimen['uts']:.1f}"))
+                rows.append((f"fracture_{k}", specimen["fracture"]))
+            elif state["specimens_cut"]:
+                rows.append((f"uts_{k}", "<i>specimen not tested</i>"))
         table = "".join(
             f"<tr><td style='padding:2px 10px 2px 0;font-family:monospace'>{html.escape(k)}</td>"
             f"<td style='padding:2px 0'><b>{v}</b></td></tr>"

@@ -25,14 +25,14 @@ from _mock import fsw  # noqa: E402
 from _mock.lab import DEFAULT_FOLDER, MockLab  # noqa: E402
 
 # =========================================================== MOCK CONFIG ==
-CAMPAIGN_SEED = 0  # must match the demo notebook to reproduce its specimens
-SPECIMEN_FOLDER = DEFAULT_FOLDER
+CAMPAIGN_SEED = 0  # must match the demo notebook to reproduce its welds
+WELD_FOLDER = DEFAULT_FOLDER
 MOCK_PARAMS = fsw.MockParams(
     importance={"R": 1.0, "W": 1.0, "D": 1.0, "P": 1.0, "O": 1.0},
     drift_stress_per_weld=0.0,  # e.g. 1.5 to see drift in the control plot
 )
 READINGS_PER_POSITION = (1, 3)  # operator takes 1 to 3 readings per position
-CONTEXT = {"plate_lot": "MOCK-LOT-1", "ambient": "25 C"}
+CONTEXT = {"ambient": "25 C"}
 EXPERIMENT_FILE = Path(__file__).resolve().parent / "data" / "experiments.xlsx"
 # ==========================================================================
 
@@ -51,16 +51,16 @@ def measure(lab: MockLab, weld_id: str, settings: dict) -> dict:
         return values  # D1: nothing else is measured
 
     rng = np.random.default_rng([state["seed"], 7])
-    if not state["coupons_cut"]:
+    if not state["specimens_cut"]:
         for p in range(1, sheet.N_POSITIONS + 1):
             if not state["stress"][str(p)]:
                 lo, hi = READINGS_PER_POSITION
                 for _ in range(int(rng.integers(lo, hi + 1))):
                     lab.read_stress(weld_id, p)
-        lab.cut_coupons(weld_id)
-    for c in range(1, sheet.N_COUPONS + 1):
-        if lab.state(weld_id)["coupons"][str(c)] is None:
-            lab.test_coupon(weld_id, c)
+        lab.cut_specimens(weld_id)
+    for k in range(1, sheet.N_TENSILE_SPECIMENS + 1):
+        if lab.state(weld_id)["specimens"][str(k)] is None:
+            lab.test_specimen(weld_id, k)
 
     state = lab.state(weld_id)
     for p in range(1, sheet.N_POSITIONS + 1):
@@ -71,9 +71,9 @@ def measure(lab: MockLab, weld_id: str, settings: dict) -> dict:
             )
         for col, v in zip(sheet.stress_reading_cols(p), readings):
             values[col] = v
-    for c in range(1, sheet.N_COUPONS + 1):
-        values[f"uts_{c}"] = state["coupons"][str(c)]["uts"]
-        values[f"fracture_{c}"] = state["coupons"][str(c)]["fracture"]
+    for k in range(1, sheet.N_TENSILE_SPECIMENS + 1):
+        values[f"uts_{k}"] = state["specimens"][str(k)]["uts"]
+        values[f"fracture_{k}"] = state["specimens"][str(k)]["fracture"]
     return values
 
 
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Batch {batch} has nothing left to fill.")
             return
 
-    lab = MockLab(SPECIMEN_FOLDER, campaign_seed=CAMPAIGN_SEED, params=MOCK_PARAMS)
+    lab = MockLab(WELD_FOLDER, campaign_seed=CAMPAIGN_SEED, params=MOCK_PARAMS)
     updates = {}
     for _, r in rows.sort_values(["batch", "order_in_batch"]).iterrows():
         settings = {
@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> None:
         }
         updates[r["weld_id"]] = measure(lab, r["weld_id"], settings)
         v = updates[r["weld_id"]]
-        uts = f", UTS {v['uts_1']}/{v['uts_2']}" if "uts_1" in v else ""
+        uts = ", UTS " + "/".join(str(v[c]) for c in sheet.UTS_VALUE_COLS) if "uts_1" in v else ""
         print(
             f"  {r['weld_id']} (batch {r['batch']}): quality {v['visual_quality']}{uts}"
         )

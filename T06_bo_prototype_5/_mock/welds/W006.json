@@ -22,8 +22,8 @@
       182.5
     ]
   },
-  "coupons_cut": true,
-  "coupons": {
+  "specimens_cut": true,
+  "specimens": {
     "1": {
       "uts": 232.8,
       "fracture": "interface"
@@ -78,19 +78,19 @@
     },
     {
       "time": "2026-11-25T15:11:03",
-      "action": "cut_coupons"
+      "action": "cut_specimens"
     },
     {
       "time": "2026-11-25T15:11:03",
-      "action": "test_coupon",
-      "coupon": 1,
+      "action": "test_specimen",
+      "specimen": 1,
       "uts": 232.8,
       "fracture": "interface"
     },
     {
       "time": "2026-11-25T15:11:03",
-      "action": "test_coupon",
-      "coupon": 2,
+      "action": "test_specimen",
+      "specimen": 2,
       "uts": 239.8,
       "fracture": "weld zone"
     }
@@ -110,7 +110,7 @@
     "reading_std": 6.0,
     "outlier_prob": 0.07,
     "outlier_size": 60.0,
-    "coupon_std": 5.0,
+    "specimen_std": 5.0,
     "base_metal_uts": 262.0,
     "drift_stress_per_weld": 0.0,
     "drift_uts_per_weld": 0.0

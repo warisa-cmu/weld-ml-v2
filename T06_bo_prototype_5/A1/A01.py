@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import warnings
 from datetime import date
 from pathlib import Path
 
@@ -60,7 +59,7 @@ OUTLIER_MPA = (
     25.0  # with 3+ readings at a position, use the median if one is this far off
 )
 STRESS_RANGE = (-1000.0, 1000.0)  # plausible stress reading, MPa (catches typos)
-UTS_RANGE = (0.0, 1000.0)  # plausible coupon UTS, MPa
+UTS_RANGE = (0.0, 1000.0)  # plausible UTS of one tensile specimen, MPa
 
 # Engineering limits (not used in A1; recorded for A2/A3).
 MAXIMUM_STRESS = "TBD"
@@ -91,11 +90,8 @@ def build_design() -> pd.DataFrame:
     welds = []
     for k, orientation in enumerate(ORIENTATIONS):
         sampler = qmc.Sobol(d=len(names), scramble=True, seed=SEED + 1000 * (k + 1))
-        with (
-            warnings.catch_warnings()
-        ):  # n is not a power of 2; first n points are fine
-            warnings.simplefilter("ignore", UserWarning)
-            unit = sampler.random(N_PER_ORIENTATION)
+        # Sobol balance guarantees require a power-of-two count; this design intentionally takes the first N points.
+        unit = sampler.random(N_PER_ORIENTATION)
         lows = [BOUNDS[n][0] for n in names]
         highs = [BOUNDS[n][1] for n in names]
         points = qmc.scale(unit, lows, highs)
@@ -197,7 +193,7 @@ def report(df: pd.DataFrame) -> None:
         print(
             f"\nCompleted welds: {len(done)}  |  failed (D1): {n_d1}  |  "
             f"tensile-tested (D2): {(done['d_code'] == 'D2').sum()}  |  "
-            f"coupons used: {2 * (done['d_code'] == 'D2').sum()}"
+            f"tensile specimens used: {sheet.N_TENSILE_SPECIMENS * (done['d_code'] == 'D2').sum()}"
         )
         if len(done) >= 4 and n_d1 / len(done) > 0.5:
             print(

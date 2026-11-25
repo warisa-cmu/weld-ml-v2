@@ -8,5 +8,9 @@
       ]
     }
   },
-  "terminal.integrated.defaultProfile.windows": "Command Prompt (MSVC)"
+  "terminal.integrated.defaultProfile.windows": "Command Prompt (MSVC)",
+  "workbench.editorAssociations": {
+    "*.md": "default",
+    "*.markdown": "default"
+  }
 }

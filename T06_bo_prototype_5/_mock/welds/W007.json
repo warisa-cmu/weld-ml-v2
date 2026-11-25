@@ -1,0 +1,139 @@
+{
+  "weld_id": "W007",
+  "welded_at": "2026-11-25T15:11:03",
+  "settings": {
+    "R": 1630,
+    "W": 61,
+    "D": 17,
+    "P": 0.135,
+    "O": "O1"
+  },
+  "seed": 1264797534,
+  "visual_quality": 2,
+  "stress": {
+    "1": [
+      174.6,
+      188.6,
+      188.8
+    ],
+    "2": [
+      175.3
+    ],
+    "3": [
+      192.0
+    ]
+  },
+  "specimens_cut": true,
+  "specimens": {
+    "1": {
+      "uts": 264.5,
+      "fracture": "base metal"
+    },
+    "2": {
+      "uts": 251.1,
+      "fracture": "weld zone"
+    }
+  },
+  "log": [
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "weld",
+      "R": 1630,
+      "W": 61,
+      "D": 17,
+      "P": 0.135,
+      "O": "O1"
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "inspect",
+      "visual_quality": 2
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "read_stress",
+      "position": 1,
+      "reading_no": 1,
+      "value": 174.6
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "read_stress",
+      "position": 1,
+      "reading_no": 2,
+      "value": 188.6
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "read_stress",
+      "position": 1,
+      "reading_no": 3,
+      "value": 188.8
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "read_stress",
+      "position": 2,
+      "reading_no": 1,
+      "value": 175.3
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "read_stress",
+      "position": 3,
+      "reading_no": 1,
+      "value": 192.0
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "cut_specimens"
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "test_specimen",
+      "specimen": 1,
+      "uts": 264.5,
+      "fracture": "base metal"
+    },
+    {
+      "time": "2026-11-25T15:11:03",
+      "action": "test_specimen",
+      "specimen": 2,
+      "uts": 251.1,
+      "fracture": "weld zone"
+    }
+  ],
+  "_params": {
+    "importance": {
+      "R": 1.0,
+      "W": 1.0,
+      "D": 1.0,
+      "P": 1.0,
+      "O": 1.0
+    },
+    "weld_stress_std": 10.0,
+    "weld_uts_std": 6.0,
+    "visual_std": 0.35,
+    "position_std": 8.0,
+    "reading_std": 6.0,
+    "outlier_prob": 0.07,
+    "outlier_size": 60.0,
+    "specimen_std": 5.0,
+    "base_metal_uts": 262.0,
+    "drift_stress_per_weld": 0.0,
+    "drift_uts_per_weld": 0.0
+  },
+  "_truth": {
+    "quality": 2,
+    "visual_latent": 2.9660266203843846,
+    "heat_index": 0.04250000000000001,
+    "stress_true": [
+      183.65179371200048,
+      179.16779195611002,
+      188.32229125768004
+    ],
+    "uts_true": 259.7599556354693,
+    "base_metal_uts": 262.0,
+    "weld_index": 7
+  }
+}
