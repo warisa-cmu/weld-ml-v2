@@ -42,7 +42,7 @@ FRACTURE_COLS = [f"fracture_{k}" for k in range(1, settings.N_TENSILE_SPECIMENS 
 
 ID_COLS = ["weld_id", "batch", "phase", "order_in_batch", "type"]
 SETTING_COLS = ["R", "W", "D", "P", "O"]
-CONTEXT_COLS = ["tool_state", "ambient"]
+CONTEXT_COLS = list(settings.CONTEXT_COLUMNS)
 STRESS_READING_COLS = [
     c for p in range(1, settings.N_POSITIONS + 1) for c in stress_reading_cols(p)
 ]
@@ -183,6 +183,7 @@ def create_workbook(
         "A3 welds: read stress, then wait for test_decision. D3 or D2: cut and tensile-test. D4: leave the weld uncut.",
         f"Stress: enter each raw reading; up to {settings.MAX_REPEATS} readings per position, left to right.",
         f"UTS: one value per tensile specimen in MPa ({settings.N_TENSILE_SPECIMENS} per weld), with its fracture location.",
+        *(f"{c}: {what}." for c, what in settings.CONTEXT_COLUMNS.items()),
     ):
         st.append(["", line])
     for cell in st[1]:

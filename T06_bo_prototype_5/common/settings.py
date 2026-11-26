@@ -56,6 +56,14 @@ N_TENSILE_SPECIMENS = 2
 QUALITY_LEVELS = (0, 1, 2, 3)
 FRACTURE_LOCATIONS = ("weld zone", "interface", "base metal")
 
+# Context recorded with every weld: one free-text column per entry, with what
+# the operator writes in it (shown in the sheet's "How to fill in" notes).
+# Kept for later checks such as drift; the model does not use them.
+CONTEXT_COLUMNS = {
+    "tool_state": "tool wear, or the number of welds made with this tool",
+    "ambient": "ambient conditions, e.g. temperature",
+}
+
 # ================================================ DATA REDUCTION AND CHECKS ==
 # Safe to change at any time: the computed columns are recalculated on the
 # next run of a phase script.

@@ -40,10 +40,11 @@ def lab_values(lab: MockLab, row: pd.Series) -> dict[str, Any]:
     if q is None:
         q = lab.inspect(weld_id)
 
+    context = {**settings.MOCK.CONTEXT, "tool_state": f"weld {weld_id}"}
     values: dict[str, Any] = {
         "visual_quality": q,
-        **settings.MOCK.CONTEXT,
-        "tool_state": f"weld {weld_id}",
+        # only the context columns the sheet has, in case CONTEXT_COLUMNS changed
+        **{c: v for c, v in context.items() if c in sheet.CONTEXT_COLS},
     }
     if q == 0:
         return values  # D1: nothing else is measured
